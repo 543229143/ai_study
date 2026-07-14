@@ -1,0 +1,48 @@
+{
+  "incident_id": "memory_leak_oom",
+  "service": "cache_service",
+  "severity": "P0",
+  "title": "Cache service OOM killed by kernel",
+  "description": "At 22:15, cache_service was killed by the OOM killer after memory usage steadily grew from 60% to 98% over 6 hours.",
+  "detected_at": "2026-07-09T22:15:00Z",
+  "resolved_at": "2026-07-09T22:25:00Z",
+  "logs": [
+    {"timestamp": "2026-07-09T16:00:00Z", "level": "WARN", "source": "cache-service", "message": "Session cache size approaching threshold: current=800000, max=1000000"},
+    {"timestamp": "2026-07-09T18:00:00Z", "level": "WARN", "source": "cache-service", "message": "Session cache size critical: current=950000, max=1000000, evictions=0"},
+    {"timestamp": "2026-07-09T20:00:00Z", "level": "ERROR", "source": "cache-service", "message": "GC overhead limit exceeded — Full GC taking >98% of CPU time"},
+    {"timestamp": "2026-07-09T21:30:00Z", "level": "FATAL", "source": "cache-service", "message": "OutOfMemoryError: Java heap space — unable to create new thread"},
+    {"timestamp": "2026-07-09T22:10:00Z", "level": "WARN", "source": "kernel", "message": "oom-killer invoked: cache-service (pid=12345) using 7.8GB of 8GB available"},
+    {"timestamp": "2026-07-09T22:15:00Z", "level": "FATAL", "source": "kernel", "message": "Killed process 12345 (cache-service) total-vm:8589934592, anon-rss:7800000000"},
+    {"timestamp": "2026-07-09T22:16:00Z", "level": "INFO", "source": "supervisord", "message": "cache-service: exited with signal 9 (SIGKILL)"},
+    {"timestamp": "2026-07-09T22:17:00Z", "level": "INFO", "source": "supervisord", "message": "cache-service: restarting (attempt 1)"},
+    {"timestamp": "2026-07-09T22:25:00Z", "level": "INFO", "source": "cache-service", "message": "Service started successfully, memory: 30%"},
+    {"timestamp": "2026-07-09T22:25:10Z", "level": "INFO", "source": "cache-service", "message": "All caches warmed up, ready to serve"}
+  ],
+  "metrics": {
+    "memory_usage": {
+      "unit": "percent",
+      "description": "Cache service heap memory usage",
+      "values": [60, 62, 65, 68, 72, 76, 80, 84, 87, 90, 92, 94, 95, 96, 97, 98, 99, 30, 32, 35]
+    },
+    "gc_pause_time": {
+      "unit": "ms",
+      "description": "GC pause time (Full GC)",
+      "values": [200, 250, 300, 500, 800, 1200, 2000, 3500, 5000, 8000, 12000, 15000, 18000, 20000, 25000, 30000, 35000, 150, 180, 200]
+    },
+    "session_cache_size": {
+      "unit": "entries",
+      "description": "Number of cached sessions",
+      "values": [800000, 820000, 850000, 880000, 900000, 920000, 940000, 950000, 960000, 970000, 975000, 980000, 985000, 990000, 992000, 995000, 997000, 10000, 15000, 20000]
+    },
+    "eviction_rate": {
+      "unit": "entries/minute",
+      "description": "Cache eviction rate",
+      "values": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 50, 100, 200]
+    },
+    "request_rate": {
+      "unit": "requests/second",
+      "description": "Incoming request rate",
+      "values": [500, 520, 550, 580, 600, 610, 620, 630, 640, 650, 640, 630, 620, 610, 600, 590, 580, 200, 400, 500]
+    }
+  }
+}

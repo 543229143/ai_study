@@ -1,0 +1,82 @@
+service: order_service
+procedures:
+  - name: Database Connection Pool Exhaustion
+    severity: P1
+    triggers:
+      - "pool exhausted"
+      - "HikariPool connection timeout"
+      - "Unable to acquire JDBC Connection"
+      - "circuit breaker OPEN datasource"
+    steps:
+      - seq: 1
+        action: Check active connection count and pool configuration (maxPoolSize, connectionTimeout)
+      - seq: 2
+        action: Identify slow queries using database slow query log (threshold: >1000ms)
+      - seq: 3
+        action: Check for missing indexes on frequently queried columns (e.g., user_id, order_status)
+      - seq: 4
+        action: Run EXPLAIN ANALYZE on suspected slow queries to find full table scans
+      - seq: 5
+        action: If missing index found, create index during low-traffic window
+      - seq: 6
+        action: Temporarily increase maxPoolSize by 50% if service is healthy enough
+      - seq: 7
+        action: Monitor connection pool metrics for 30 minutes post-fix
+      - seq: 8
+        action: Document root cause and add connection pool monitoring alerts
+---
+service: cache_service
+procedures:
+  - name: Out of Memory (OOM) — Session Cache Leak
+    severity: P0
+    triggers:
+      - "OOM"
+      - "OutOfMemoryError"
+      - "Java heap space"
+      - "memory leak"
+      - "session cache no TTL"
+    steps:
+      - seq: 1
+        action: Restart the service to clear heap (immediate mitigation)
+      - seq: 2
+        action: Analyze heap dump if available (jmap -dump:live,format=b)
+      - seq: 3
+        action: Check session cache configuration — verify TTL/eviction policy is set
+      - seq: 4
+        action: If no TTL configured, add max-idle-time and time-to-live to cache config
+      - seq: 5
+        action: Add session cache size monitoring and alerting (>80% capacity triggers warning)
+      - seq: 6
+        action: Consider external cache (Redis) for large session stores
+      - seq: 7
+        action: Add JVM heap monitoring (Xmx, -XX:+HeapDumpOnOutOfMemoryError)
+      - seq: 8
+        action: Post-incident: load test with realistic session volume to verify fix
+---
+service: gateway_service
+procedures:
+  - name: External API Rate Limit Cascade Failure
+    severity: P2
+    triggers:
+      - "HTTP 429"
+      - "Too Many Requests"
+      - "rate limit"
+      - "retry storm"
+      - "no exponential backoff"
+    steps:
+      - seq: 1
+        action: Check retry configuration — verify exponential backoff is implemented (not fixed interval)
+      - seq: 2
+        action: Enable circuit breaker with proper thresholds (e.g., 50% failure → open circuit)
+      - seq: 3
+        action: Add jitter to retry delays to avoid thundering herd
+      - seq: 4
+        action: Implement rate limit awareness — respect Retry-After header from upstream
+      - seq: 5
+        action: Add retry queue monitoring and alerting (depth > 1000 triggers P3)
+      - seq: 6
+        action: Consider bulkhead pattern — isolate payment retry pool from main request pool
+      - seq: 7
+        action: Contact upstream provider to confirm rate limit configuration and adjust if needed
+      - seq: 8
+        action: Post-incident: chaos test with simulated rate limits to verify resilience

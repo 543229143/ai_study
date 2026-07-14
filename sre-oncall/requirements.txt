@@ -1,0 +1,3 @@
+openai>=1.0
+python-dotenv>=0.21
+pyyaml>=6.0

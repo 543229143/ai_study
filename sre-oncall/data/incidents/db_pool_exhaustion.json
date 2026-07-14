@@ -1,0 +1,53 @@
+{
+  "incident_id": "db_pool_exhaustion",
+  "service": "order_service",
+  "severity": "P1",
+  "title": "Database connection pool exhausted causing 503 errors",
+  "description": "At 14:03, monitoring detected a spike in 503 errors from order_service. The service became unresponsive for approximately 8 minutes before auto-recovery.",
+  "detected_at": "2026-07-10T14:03:00Z",
+  "resolved_at": "2026-07-10T14:11:00Z",
+  "logs": [
+    {"timestamp": "2026-07-10T14:01:15Z", "level": "WARN", "source": "hikari-pool", "message": "HikariPool-1 - Connection is not available, request timed out after 30000ms (total=10, active=10, idle=0, waiting=5)"},
+    {"timestamp": "2026-07-10T14:01:30Z", "level": "ERROR", "source": "order-service", "message": "Failed to create order: Unable to acquire JDBC Connection within timeout"},
+    {"timestamp": "2026-07-10T14:01:45Z", "level": "WARN", "source": "hikari-pool", "message": "HikariPool-1 - Thread starvation or clock leap detected (housekeeper delta=45s)"},
+    {"timestamp": "2026-07-10T14:02:00Z", "level": "ERROR", "source": "order-service", "message": "Transaction rolled back: could not commit JDBC transaction; nested exception is org.hibernate.TransactionException"},
+    {"timestamp": "2026-07-10T14:02:30Z", "level": "ERROR", "source": "order-service", "message": "HTTP 503 Service Unavailable returned for /api/orders (duration=32000ms)"},
+    {"timestamp": "2026-07-10T14:03:00Z", "level": "FATAL", "source": "order-service", "message": "Health check failed: datasource connection pool exhausted, circuit breaker OPEN"},
+    {"timestamp": "2026-07-10T14:05:00Z", "level": "INFO", "source": "hikari-pool", "message": "HikariPool-1 - Slow query detected: SELECT * FROM orders WHERE user_id = ? — query time: 45000ms"},
+    {"timestamp": "2026-07-10T14:08:00Z", "level": "INFO", "source": "hikari-pool", "message": "HikariPool-1 - After timeout 1/10 connections reclaimed"},
+    {"timestamp": "2026-07-10T14:09:00Z", "level": "INFO", "source": "hikari-pool", "message": "HikariPool-1 - After timeout 5/10 connections reclaimed"},
+    {"timestamp": "2026-07-10T14:11:00Z", "level": "INFO", "source": "order-service", "message": "Circuit breaker CLOSED, service recovered"}
+  ],
+  "metrics": {
+    "db_pool_active": {
+      "unit": "connections",
+      "description": "Active database connections",
+      "values": [5, 6, 7, 9, 10, 10, 10, 10, 10, 10, 10, 9, 9, 8, 7, 6, 5, 5, 5, 5]
+    },
+    "db_pool_waiting": {
+      "unit": "requests",
+      "description": "Requests waiting for connection",
+      "values": [0, 0, 1, 3, 5, 8, 10, 12, 10, 8, 5, 3, 1, 0, 0, 0, 0, 0, 0, 0]
+    },
+    "latency_p99": {
+      "unit": "ms",
+      "description": "P99 request latency",
+      "values": [50, 55, 80, 200, 500, 3000, 5000, 8000, 12000, 15000, 10000, 5000, 2000, 500, 150, 80, 60, 55, 50, 50]
+    },
+    "error_rate": {
+      "unit": "percent",
+      "description": "HTTP 5xx error rate",
+      "values": [0, 0, 1, 5, 15, 40, 60, 80, 75, 60, 40, 20, 10, 5, 2, 1, 0, 0, 0, 0]
+    },
+    "cpu_usage": {
+      "unit": "percent",
+      "description": "Order service CPU usage",
+      "values": [45, 47, 50, 55, 60, 65, 70, 75, 72, 68, 65, 60, 55, 50, 48, 46, 45, 44, 45, 44]
+    },
+    "memory_usage": {
+      "unit": "percent",
+      "description": "Order service memory usage",
+      "values": [65, 66, 67, 68, 70, 72, 73, 74, 73, 72, 71, 70, 69, 68, 67, 66, 65, 65, 65, 65]
+    }
+  }
+}

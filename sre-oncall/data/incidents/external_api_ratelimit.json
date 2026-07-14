@@ -1,0 +1,43 @@
+{
+  "incident_id": "external_api_ratelimit",
+  "service": "gateway_service",
+  "severity": "P2",
+  "title": "External payment API rate limiting causing order timeouts",
+  "description": "At 11:30, payment API returns 429 Too Many Requests, causing cascading order processing failures. The payment provider confirmed no rate limit changes on their side.",
+  "detected_at": "2026-07-11T11:30:00Z",
+  "resolved_at": "2026-07-11T11:55:00Z",
+  "logs": [
+    {"timestamp": "2026-07-11T11:25:00Z", "level": "INFO", "source": "gateway-service", "message": "Payment retry loop started: attempt=1, order_id=ORD-12345"},
+    {"timestamp": "2026-07-11T11:25:01Z", "level": "WARN", "source": "gateway-service", "message": "Payment API HTTP 429: Too Many Requests — retrying in 100ms"},
+    {"timestamp": "2026-07-11T11:25:02Z", "level": "WARN", "source": "gateway-service", "message": "Payment API HTTP 429: Too Many Requests — retrying in 200ms"},
+    {"timestamp": "2026-07-11T11:25:04Z", "level": "WARN", "source": "gateway-service", "message": "Payment API HTTP 429: Too Many Requests — retrying in 400ms"},
+    {"timestamp": "2026-07-11T11:25:08Z", "level": "ERROR", "source": "gateway-service", "message": "Payment API max retries exceeded for order ORD-12345"},
+    {"timestamp": "2026-07-11T11:30:00Z", "level": "FATAL", "source": "gateway-service", "message": "Circuit breaker OPEN for payment API — 80% failure rate in 5min window"},
+    {"timestamp": "2026-07-11T11:35:00Z", "level": "WARN", "source": "gateway-service", "message": "Retry storm detected: 5000+ payment requests queued for retry"},
+    {"timestamp": "2026-07-11T11:45:00Z", "level": "INFO", "source": "gateway-service", "message": "Retry backoff adjusted to exponential (base=2s, max=60s)"},
+    {"timestamp": "2026-07-11T11:50:00Z", "level": "INFO", "source": "gateway-service", "message": "Payment API 429 rate decreased to 5%, queue draining"},
+    {"timestamp": "2026-07-11T11:55:00Z", "level": "INFO", "source": "gateway-service", "message": "Circuit breaker HALF_OPEN — payment API recovered, rate normal"}
+  ],
+  "metrics": {
+    "http_429_rate": {
+      "unit": "percent",
+      "description": "Payment API 429 response rate",
+      "values": [0, 0, 5, 20, 50, 80, 90, 95, 95, 90, 80, 60, 40, 20, 10, 5, 2, 0, 0, 0]
+    },
+    "retry_queue_depth": {
+      "unit": "requests",
+      "description": "Pending retry requests in queue",
+      "values": [0, 10, 100, 500, 2000, 5000, 8000, 9000, 8500, 7000, 5000, 3000, 1500, 500, 100, 50, 10, 0, 0, 0]
+    },
+    "order_success_rate": {
+      "unit": "percent",
+      "description": "Order processing success rate",
+      "values": [100, 100, 95, 80, 50, 20, 10, 5, 5, 10, 20, 40, 60, 80, 90, 95, 98, 100, 100, 100]
+    },
+    "latency_p50": {
+      "unit": "ms",
+      "description": "P50 order processing latency",
+      "values": [100, 110, 200, 500, 2000, 5000, 8000, 10000, 10000, 8000, 5000, 3000, 1500, 800, 400, 200, 150, 120, 100, 100]
+    }
+  }
+}
