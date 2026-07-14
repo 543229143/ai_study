@@ -1,0 +1,9 @@
+# LLM
+openai>=1.0.0
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# 搜索（可选，至少安装一个启动搜索功能）
+# tavily-python>=0.3.0
+# google-search-results>=2.4.2
