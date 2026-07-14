@@ -1,0 +1,49 @@
+name: Wiki Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check markdown formatting
+        uses: DavidAnson/markdownlint-cli2-action@v19
+        with:
+          globs: 'wiki/**/*.md'
+
+      - name: Validate YAML frontmatter
+        run: |
+          python3 -c "
+          import yaml, os, glob
+          errors = 0
+          for f in glob.glob('wiki/**/*.md', recursive=True):
+              with open(f) as fh:
+                  content = fh.read()
+              if not content.startswith('---'):
+                  print(f'MISSING frontmatter: {f}')
+                  errors += 1
+                  continue
+              parts = content.split('---', 2)
+              if len(parts) < 3:
+                  print(f'BROKEN frontmatter: {f}')
+                  errors += 1
+                  continue
+              try:
+                  meta = yaml.safe_load(parts[1])
+                  required = ['title', 'type', 'status']
+                  for r in required:
+                      if r not in meta:
+                          print(f'MISSING {r} in {f}')
+                          errors += 1
+              except Exception as e:
+                  print(f'YAML ERROR in {f}: {e}')
+                  errors += 1
+          if errors:
+              exit(1)
+          "
