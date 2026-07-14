@@ -44,3 +44,16 @@ cd invoice-to-pay-agent
 - **方案 AB 共存**: 每个项目的 `.cursor/skills/` 和 `.opencode/agents/` 各自维护独立入口
 - **核心逻辑共享**: `core/` 目录下的 Python 代码被方案 A 和方案 B 共同使用
 - **面试友好**: 每个项目均含 `INTERVIEW.md`，覆盖 15+ 面试问答
+
+---
+
+## 面试项目推荐
+
+| 面试场景 | 推荐项目 | 推荐理由 |
+|---------|---------|---------|
+| **通用 Agent 岗位** | [stock-insight](./stock-insight/) | 功能密度最高（18 工具+记忆+RAG+上下文管理），金融背景契合，原创代码能接住任何追问 |
+| **架构/系统设计岗** | [column-writer](./column-writer/) | 4 种 Agent 模式横向对比展示架构选型能力，组件解耦合（Planner/Writer/Reviewer/Revision 各司其职） |
+| **运维/金融垂直岗** | [sre-oncall](./sre-oncall/) | 三阶段 SRE 流水线，场景最专业，代码最小但范式齐全，可直接接真实数据源 |
+| **补充提及（不做主力）** | [invoice-to-pay-agent](https://github.com/mshojaei77/invoice-to-pay-agent) | 展示对 LangGraph 状态机和企业流程自动化的研究，但非原创代码，追问答不出细节 |
+
+**建议策略**：主攻 **[stock-insight](./stock-insight/)**（功能最全，能聊 30 分钟），在聊"Agent 范式选型"时引入 **[column-writer](./column-writer/)** 作为多模式对比的案例。
