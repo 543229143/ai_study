@@ -6,23 +6,7 @@
 
 ---
 
-## 阶段一：理解设计（第 1 天）
 
-### 必读文章
-
-| 文章 | 链接 | 核心收获 |
-|------|------|---------|
-| **Building effective agents** | https://www.anthropic.com/engineering/building-effective-agents | 理解什么时候用 agent、什么时候用 workflow，经典架构模式 |
-| **Function Calling 说明** | https://platform.openai.com/docs/guides/function-calling | 理解 LLM 怎么调工具、参数怎么传 |
-| **ReAct 论文** | https://arxiv.org/abs/2210.03629 | 理解思考→行动→观察的循环本质 |
-
-### 读完能回答
-
-- Agent 和 workflow 的区别是什么？
-- 什么场景用 ReAct？什么场景用 Plan-then-Execute？
-- 工具调用的流程是什么？
-
----
 
 ## 阶段二：跑通最小 Agent（第 2-3 天）
 
@@ -30,8 +14,7 @@
 
 | 仓库 | 看什么 | 做什么 |
 |------|--------|--------|
-| https://github.com/openai/openai-cookbook | `examples/How_to_call_functions_with_chat_models.ipynb` | 跑通最简单的工具调用示例，20 行核心循环 |
-| https://github.com/anthropics/claude-cookbooks | `tool_use/customer_service_agent.ipynb` | 看 Claude 的工具调用写法（已改名 claude-cookbooks） |
+
 | https://github.com/openai/openai-agents-python | `examples/basic/` 目录 | 看官方推荐的 Agent 写法，含 gardrail、handoff 等 |
 
 ### 自己动手写
