@@ -173,3 +173,18 @@ LLM 生成最终回答
 2. **先抄后写** — 先跑通别人的代码，再自己写
 3. **带着问题读代码** — 别从头看，想问"对话记忆怎么做的"再去搜
 4. **和 SKILL.md 对照** — 每个新概念都想想"这个在我 SKILL.md 方案里对应什么"
+
+
+
+https://github.com/affaan-m/ECC/blob/main/README.zh-CN.md
+ECC（Everything Claude Code） 是一个 Claude Code/Codex/Cursor/OpenCode 等 AI 编程助手的全功能配置与技能集合（234k stars）。
+核心使用场景：
+1. 智能代码审查 — 覆盖 TypeScript、Go、Python、Java、Rust、C++、Kotlin、Perl 等语言的代码审查 agent
+2. 全流程开发工作流 — 从规划 → 编码 → TDD → 审查 → 构建修复 → 部署，一站式闭环
+3. 安全审计（AgentShield） — 扫描 AI 助手的配置漏洞、密钥泄露、钩子注入、MCP 服务风险
+4. 持续学习 — 自动从对话中提取模式，生成可复用的 skill，跨会话积累知识
+5. 多 agent 编排 — 多 agent 并行工作、任务拆解、工作流编排
+6. 领域框架支持 — Django、Laravel、Spring Boot、Quarkus、Next.js 等框架的专属开发模式和 TDD 工作流
+7. 内容创作 — 长文写作、社媒内容、融资路演材料、PPT 生成
+8. QA 自动化 — Playwright E2E 测试、验证循环
+9. MCP 服务集成 — 预配置 GitHub、Supabase、Vercel 等 MCP 服务
