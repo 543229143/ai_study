@@ -1,0 +1,10 @@
+{
+  "description": "同级代码仓发现规则。从当前 repo-root 向上找 sibling 目录。",
+  "sibling_dir": "..",
+  "app_repo_names": {
+    "lps": "lps",
+    "lcs": "lcs",
+    "goa": "goa",
+    "ams": "ams"
+  }
+}

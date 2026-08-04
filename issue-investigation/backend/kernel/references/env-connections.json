@@ -1,0 +1,62 @@
+{
+  "schema_version": 2,
+  "description": "dev/sit 环境连接。每环境一套 MySQL 连接 + schemas 映射；SQL 模板使用 {{schema}}.表名 自动限定库。",
+  "dev": {
+    "logs": {
+      "k8s_namespace": "dev",
+      "kibana_base_url": "http://kibana-test.xurongwl.com",
+      "es_host": "http://8.153.15.202:59200",
+      "es_user": "",
+      "es_password": "",
+      "index_pattern": "filebeat-*",
+      "index": "filebeat"
+    },
+    "nacos": {
+      "base_url": "https://test.xurongwl.com/nacos",
+      "username": "nacos",
+      "password": "hxnmg0U9IoPHfdNC"
+    },
+    "mysql": {
+      "host": "8.153.15.202",
+      "port": 23306,
+      "user": "dev",
+      "password": "tpMGfdVl1pd6"
+    },
+    "schemas": {
+      "goa": "goa",
+      "lcs": "lcs",
+      "ams": "ams",
+      "lps": "lps",
+      "hub": "hub"
+    }
+  },
+  "sit": {
+    "logs": {
+      "k8s_namespace": "sit",
+      "kibana_base_url": "http://kibana-test.xurongwl.com",
+      "es_host": "http://8.153.15.202:59200",
+      "es_user": "",
+      "es_password": "",
+      "index_pattern": "filebeat-*",
+      "index": "filebeat"
+    },
+    "nacos": {
+      "base_url": "https://test.xurongwl.com/nacos",
+      "username": "nacos",
+      "password": "hxnmg0U9IoPHfdNC"
+    },
+    "mysql": {
+      "host": "8.153.15.202",
+      "port": 33306,
+      "user": "sit_read",
+      "password": "nzi1hYKMo5TC"
+    },
+    "schemas": {
+      "goa": "goa",
+      "lcs": "lcs",
+      "ams": "ams",
+      "lps": "lps",
+      "hub": "hub"
+    }
+  }
+}

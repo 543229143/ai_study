@@ -1,0 +1,72 @@
+:root {
+  --bg: #0b0f14;
+  --bg-2: #111722;
+  --bg-3: #171f2c;
+  --panel: #0e141d;
+  --line: #1e2a3a;
+  --line-2: #2a3a52;
+  --ink: #d7e0ec;
+  --ink-dim: #8b9bb2;
+  --ink-faint: #5c6b80;
+  --accent: #2dd4bf;
+  --accent-2: #38bdf8;
+  --warn: #f0a030;
+  --danger: #f2545b;
+  --ok: #34d399;
+  --mono: "JetBrains Mono", "SFMono-Regular", "Menlo", monospace;
+  --sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 背景网格氛围 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 500px at 20% -10%, rgba(45, 212, 191, 0.06), transparent 60%),
+    radial-gradient(900px 400px at 90% 0%, rgba(56, 189, 248, 0.05), transparent 60%),
+    linear-gradient(rgba(120, 150, 190, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(120, 150, 190, 0.035) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 42px 42px, 42px 42px;
+}
+
+.el-button {
+  border-radius: 6px;
+}
+
+.el-input__wrapper,
+.el-textarea__inner {
+  background: var(--bg-2) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 0 0 1px var(--line) inset !important;
+}
+
+.el-input__wrapper.is-focus,
+.el-textarea__inner:focus {
+  box-shadow: 0 0 0 1px var(--accent) inset !important;
+}
+
+/* 等宽数字 */
+.mono {
+  font-family: var(--mono);
+}

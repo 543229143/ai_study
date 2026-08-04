@@ -1,0 +1,12 @@
+{
+  "name": "issue-investigation-analysis",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.83.0"
+  }
+}
