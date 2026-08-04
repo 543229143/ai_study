@@ -1,6 +1,8 @@
 """runs API：创建 / 列表 / 详情 / 消息发送（门禁+轮次+环境注入）/ 产物。"""
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
 
@@ -18,8 +20,60 @@ _REJECT_MESSAGE = (
 _TURN_LIMIT_MESSAGE = "本轮排查已达 10 轮沟通上限，请新建会话继续排查。"
 
 
+def detect_from_text(text: str, env: str, app: str | None) -> dict:
+    """从用户文本自动识别排查参数（简化入口）。"""
+    t = text.strip()
+    out = {
+        "mode": "trace_id",
+        "trace_id": "",
+        "alert": "",
+        "biz_key": "",
+        "app": (app or "lps").strip().lower(),
+        "scope": "primary_only",
+    }
+    if out["app"] not in ("lcs", "goa", "ams", "lps"):
+        out["app"] = "lps"
+    # 主应用识别：文本中出现的应用名
+    for a in ("lcs", "goa", "ams", "lps"):
+        if re.search(rf"\b{a}\b", t.lower()):
+            out["app"] = a
+            break
+    hex32 = re.search(r"\b([a-f0-9]{32})\b", t, re.I)
+    if hex32:
+        out["mode"] = "trace_id"
+        out["trace_id"] = hex32.group(1)
+        return out
+    if re.search(r"Exception|ERROR|报错|告警|异常|NullPointer|timeout", t, re.I):
+        out["mode"] = "alert"
+        out["alert"] = t
+        return out
+    # 业务键模式：借据/订单/申请号等
+    out["mode"] = "biz_key"
+    for pat in (
+        r"(?:loan[_ ]?no|loanNo|借据)[:：=]?\s*([A-Za-z0-9_-]+)",
+        r"(?:order[_ ]?no|orderNo|订单)[:：=]?\s*([A-Za-z0-9_-]+)",
+        r"(?:appl[_ ]?no|applNo)[:：=]?\s*([A-Za-z0-9_-]+)",
+        r"(?:apply[_ ]?no|applyNo)[:：=]?\s*([A-Za-z0-9_-]+)",
+        r"\b((?:LN|CR|O|L)[A-Za-z0-9]{10,})\b",
+    ):
+        m = re.search(pat, t, re.I)
+        if m:
+            out["biz_key"] = m.group(1)
+            break
+    return out
+
+
 @router.post("")
 async def create_run(req: CreateRunRequest):
+    if req.text:
+        # 简化入口：从文本自动识别 mode / 查询值 / 主应用
+        fields = detect_from_text(req.text, req.env, req.app)
+        req.mode = req.mode or fields["mode"]
+        req.trace_id = req.trace_id or fields["trace_id"]
+        req.alert = req.alert or fields["alert"]
+        req.biz_key = req.biz_key or fields["biz_key"]
+        req.app = req.app or fields["app"]
+        req.scope = req.scope or fields["scope"]
     title = req.trace_id or (req.alert or "")[:20] or req.biz_key or "问题排查"
     run = store.create_run({
         "title": title,

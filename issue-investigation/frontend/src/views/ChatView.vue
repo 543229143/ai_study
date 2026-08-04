@@ -1,147 +1,131 @@
 <template>
-  <div class="chat-page">
-    <!-- 会话顶栏 -->
-    <div class="chat-top" v-if="run">
-      <div class="chat-title">
-        <span class="status-led" :class="wsConnected ? 'on' : ''"></span>
-        <span class="title-text">{{ run.title }}</span>
-        <span class="mono run-id">#{{ run.id.slice(9, 17) }}</span>
-      </div>
-      <div class="env-switch">
-        <button
-          v-for="e in ['dev', 'sit']"
-          :key="e"
-          class="env-btn"
-          :class="[env === e ? 'active' : '', `env-${e}`]"
-          @click="switchEnv(e)"
-        >
-          {{ e.toUpperCase() }}
+  <div class="app-shell">
+    <!-- 左侧会话栏（pi-web 风格） -->
+    <aside class="sidebar">
+      <div class="side-head">
+        <div class="logo">
+          <span class="logo-dot"></span>
+          <span class="logo-name">问题排查台</span>
+        </div>
+        <button class="new-btn" @click="newSession">
+          <span class="plus">＋</span> 新建排查
         </button>
       </div>
-      <div class="turns mono" :class="{ low: remaining <= 2 }">
-        {{ remaining }}/{{ run.turn_limit }} 轮
-      </div>
-    </div>
 
-    <!-- 初始化表单 -->
-    <div class="setup" v-if="!run">
-      <div class="setup-card">
-        <div class="setup-head">
-          <span class="setup-title">新建排查</span>
-          <span class="setup-sub mono">NEW INVESTIGATION</span>
+      <div class="side-list">
+        <div
+          v-for="s in sessions"
+          :key="s.id"
+          class="session-item"
+          :class="{ active: run && run.id === s.id }"
+          @click="openSession(s)"
+        >
+          <div class="si-top">
+            <span class="si-title">{{ s.title }}</span>
+            <span class="si-env mono" :class="`env-${s.env}`">{{ s.env.toUpperCase() }}</span>
+          </div>
+          <div class="si-meta mono">
+            {{ fmtTime(s.updated_at) }} · {{ s.message_count }} 轮
+          </div>
         </div>
-        <div class="setup-grid">
-          <el-select v-model="form.app" placeholder="主应用" class="cell">
-            <el-option v-for="a in ['lps', 'goa', 'lcs', 'ams']" :key="a" :label="a" :value="a" />
-          </el-select>
-          <el-select v-model="form.mode" placeholder="排查模式" class="cell">
-            <el-option label="traceId" value="trace_id" />
-            <el-option label="告警" value="alert" />
-            <el-option label="数据核对" value="biz_key" />
-          </el-select>
-          <el-select v-model="form.scope" placeholder="范围" class="cell">
-            <el-option label="仅主应用" value="primary_only" />
-            <el-option label="四应用广扫" value="all" />
-          </el-select>
-        </div>
-        <el-input
-          v-model="form.query"
-          :placeholder="
-            form.mode === 'alert'
-              ? '粘贴告警 / 报错片段'
-              : form.mode === 'biz_key'
-                ? '业务键（借据号 / 订单号 / 申请号）'
-                : '32 位 traceId'
-          "
-          class="setup-query mono"
-          @keyup.enter="startRun"
-        />
-        <el-input
-          v-model="form.phenomenon"
-          placeholder="现象描述（可选）"
-          class="setup-query"
-        />
-        <div class="setup-actions">
-          <el-button type="primary" class="start-btn" :loading="starting" @click="startRun">
-            开始排查
-          </el-button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 消息区 -->
-    <div class="messages" ref="msgBox" v-else>
-      <div
-        v-for="(m, i) in messages"
-        :key="i"
-        class="msg"
-        :class="m.role"
-      >
-        <div class="msg-avatar">{{ m.role === 'user' ? '我' : 'AI' }}</div>
-        <div class="msg-body">
-          <div class="msg-text" v-html="renderMd(m.text)"></div>
+        <div v-if="!sessions.length" class="side-empty">
+          暂无排查记录<br />输入问题即可开始
         </div>
       </div>
 
-      <!-- 流式中的 assistant 消息 -->
-      <div class="msg assistant" v-if="streamText || activeTools.length">
-        <div class="msg-avatar">AI</div>
-        <div class="msg-body">
-          <div class="tool-strip" v-if="activeTools.length">
-            <div
-              v-for="t in activeTools"
-              :key="t.name"
-              class="tool-chip"
-              :class="t.done ? 'done' : t.error ? 'err' : ''"
-            >
-              <span class="tool-dot"></span>
-              <span class="mono tool-name">{{ t.name }}</span>
-              <span class="mono tool-time" v-if="t.done">({{ t.cost }}s)</span>
-              <span class="tool-spin" v-if="!t.done"></span>
+      <div class="side-foot">
+        <router-link to="/history" class="foot-link">历史记录</router-link>
+        <span class="foot-status" :class="{ on: wsOk }"></span>
+      </div>
+    </aside>
+
+    <!-- 主聊天区 -->
+    <main class="main">
+      <!-- 顶栏：环境切换 + 会话信息 -->
+      <div class="main-top">
+        <div class="run-info">
+          <template v-if="run">
+            <span class="run-title">{{ run.title }}</span>
+            <span class="run-meta mono">#{{ run.id.slice(9, 17) }} · {{ run.app }} · {{ remaining }}/{{ run.turn_limit }} 轮</span>
+          </template>
+          <span v-else class="run-title idle">未开始排查</span>
+        </div>
+        <div class="env-switch">
+          <button
+            v-for="e in ['dev', 'sit']"
+            :key="e"
+            class="env-btn"
+            :class="[env === e ? 'active' : '', `env-${e}`]"
+            @click="env = e"
+          >
+            {{ e.toUpperCase() }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 消息区 -->
+      <div class="messages" ref="msgBox">
+        <div v-if="!run" class="empty-state">
+          <div class="empty-mark"></div>
+          <p class="empty-title">描述你要排查的问题</p>
+          <p class="empty-hint">例如：查一下 traceId 95642f… 为什么报错<br />或：lcs 借据 LN123456789012 没有生成还款计划</p>
+        </div>
+
+        <template v-else>
+          <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
+            <div class="msg-avatar">{{ m.role === 'user' ? '我' : 'AI' }}</div>
+            <div class="msg-content">
+              <div class="msg-text" v-html="renderMd(m.text)"></div>
             </div>
           </div>
-          <div class="msg-text" v-if="streamText" v-html="renderMd(streamText)"></div>
-          <div class="thinking-hint mono" v-if="thinking && !streamText">正在推理…</div>
-        </div>
-      </div>
-    </div>
 
-    <!-- 输入区 -->
-    <div class="input-area" v-if="run">
-      <div class="input-wrap" :class="{ locked: !canSend }">
-        <el-input
-          v-model="draft"
-          type="textarea"
-          :rows="2"
-          resize="none"
-          :placeholder="inputPlaceholder"
-          :disabled="!canSend"
-          @keydown.enter.exact.prevent="send"
-        />
-        <el-button
-          type="primary"
-          class="send-btn"
-          :disabled="!canSend || !draft.trim() || busy"
-          @click="send"
-        >
-          {{ busy ? '排查中…' : '发送' }}
-        </el-button>
+          <div class="msg assistant" v-if="streamText || activeTools.length">
+            <div class="msg-avatar">AI</div>
+            <div class="msg-content">
+              <div class="tool-strip" v-if="activeTools.length">
+                <div v-for="t in activeTools" :key="t.name + t.t0" class="tool-chip" :class="t.done ? 'done' : t.error ? 'err' : ''">
+                  <span class="tool-dot"></span>
+                  <span class="mono tool-name">{{ t.name }}</span>
+                  <span class="mono tool-time" v-if="t.done">{{ t.cost }}s</span>
+                  <span class="tool-spin" v-if="!t.done"></span>
+                </div>
+              </div>
+              <div class="msg-text" v-if="streamText" v-html="renderMd(streamText)"></div>
+              <div class="thinking mono" v-if="thinking && !streamText">推理中…</div>
+            </div>
+          </div>
+        </template>
       </div>
-      <div class="input-hint" v-if="!canSend">
-        {{ turnLimitReached ? '已达 10 轮沟通上限，请新建会话' : '' }}
+
+      <!-- 底部输入 -->
+      <div class="input-bar">
+        <div class="input-box">
+          <textarea
+            v-model="draft"
+            rows="1"
+            :disabled="!!run && (turnLimitReached || busy)"
+            :placeholder="inputPlaceholder"
+            @keydown.enter.exact.prevent="send"
+            @input="autoGrow"
+          ></textarea>
+          <button class="send-btn" :disabled="!draft.trim() || busy || (!!run && turnLimitReached)" @click="send">
+            {{ busy ? '排查中' : run ? '发送' : '开始排查' }}
+          </button>
+        </div>
+        <div class="input-hint" v-if="turnLimitReached">已达 10 轮沟通上限，点击「新建排查」开始新会话</div>
       </div>
-    </div>
+    </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { marked } from "marked";
 import {
   createRun,
   getMessages,
   getRun,
-  listArtifacts,
+  listRuns,
   openStream,
   sendMessage,
   type Run,
@@ -149,23 +133,15 @@ import {
 
 const env = ref<"dev" | "sit">("dev");
 const run = ref<Run | null>(null);
+const sessions = ref<Run[]>([]);
 const messages = ref<Array<{ role: string; text: string }>>([]);
 const streamText = ref("");
 const thinking = ref(false);
 const draft = ref("");
 const busy = ref(false);
-const starting = ref(false);
-const wsConnected = ref(false);
 const turnLimitReached = ref(false);
+const wsOk = ref(false);
 const msgBox = ref<HTMLElement | null>(null);
-
-const form = ref({
-  app: "lps",
-  mode: "trace_id",
-  scope: "primary_only",
-  query: "",
-  phenomenon: "",
-});
 
 interface ToolState {
   name: string;
@@ -180,15 +156,26 @@ let ws: WebSocket | null = null;
 let toolTimer: ReturnType<typeof setInterval> | null = null;
 
 const remaining = computed(() => (run.value ? run.value.turn_limit - run.value.message_count : 10));
-const canSend = computed(() => !!run.value && !busy.value && !turnLimitReached.value && remaining.value > 0);
 const inputPlaceholder = computed(() => {
-  if (!run.value) return "";
-  if (turnLimitReached.value) return "已达上限，请新建会话";
-  return "描述要排查的问题… 例如：查这个 traceId 的报错原因 / 再查下 lcs.pilot_loan 这条记录";
+  if (!run.value) return "描述要排查的问题，按回车或点击开始排查…";
+  if (turnLimitReached.value) return "已达上限，请新建排查";
+  return "继续提问… 例如：再查下这张表 / 换 sit 再看看";
 });
 
 function renderMd(text: string): string {
   return marked.parse(text || "", { breaks: true }) as string;
+}
+
+function fmtTime(ts: number): string {
+  const d = new Date(ts * 1000);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function autoGrow(e: Event) {
+  const el = e.target as HTMLTextAreaElement;
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 160) + "px";
 }
 
 function scrollBottom() {
@@ -197,50 +184,50 @@ function scrollBottom() {
   });
 }
 
-async function startRun() {
-  if (!form.value.query.trim()) return;
-  starting.value = true;
+async function loadSessions() {
   try {
-    const payload: Record<string, unknown> = {
-      env: env.value,
-      app: form.value.app,
-      mode: form.value.mode,
-      scope: form.value.scope === "all" ? "all" : "primary_only",
-      phenomenon: form.value.phenomenon || undefined,
-    };
-    if (form.value.mode === "trace_id") payload.trace_id = form.value.query.trim();
-    if (form.value.mode === "alert") payload.alert = form.value.query.trim();
-    if (form.value.mode === "biz_key") payload.biz_key = form.value.query.trim();
-    const r = await createRun(payload);
-    run.value = r;
-    connectStream(r.id);
-    messages.value = await getMessages(r.id);
-  } catch (err: any) {
-    alert(`创建排查失败: ${err.message}`);
-  } finally {
-    starting.value = false;
+    sessions.value = await listRuns();
+  } catch {
+    /* ignore */
   }
 }
 
-function switchEnv(e: "dev" | "sit") {
-  env.value = e;
+function newSession() {
+  disconnect();
+  run.value = null;
+  messages.value = [];
+  streamText.value = "";
+  activeTools.value = [];
+  turnLimitReached.value = false;
+  draft.value = "";
+}
+
+async function openSession(s: Run) {
+  if (run.value && run.value.id === s.id) return;
+  disconnect();
+  run.value = s;
+  env.value = s.env;
+  turnLimitReached.value = (s.turn_limit - s.message_count) <= 0;
+  messages.value = await getMessages(s.id);
+  connectStream(s.id);
+  scrollBottom();
 }
 
 function connectStream(id: string) {
   ws = openStream(id);
-  ws.onopen = () => {
-    wsConnected.value = true;
-  };
-  ws.onclose = () => {
-    wsConnected.value = false;
-  };
-  ws.onerror = () => {
-    wsConnected.value = false;
-  };
-  ws.onmessage = (ev) => {
-    const e = JSON.parse(ev.data);
-    handleEvent(e);
-  };
+  ws.onopen = () => (wsOk.value = true);
+  ws.onclose = () => (wsOk.value = false);
+  ws.onerror = () => (wsOk.value = false);
+  ws.onmessage = (ev) => handleEvent(JSON.parse(ev.data));
+}
+
+function disconnect() {
+  if (toolTimer) {
+    clearInterval(toolTimer);
+    toolTimer = null;
+  }
+  ws?.close();
+  ws = null;
 }
 
 function handleEvent(e: any) {
@@ -256,9 +243,7 @@ function handleEvent(e: any) {
       break;
     case "tool_start":
       activeTools.value.push({ name: e.data.tool, done: false, error: false, t0: Date.now() });
-      if (!toolTimer) {
-        toolTimer = setInterval(() => {}, 500);
-      }
+      if (!toolTimer) toolTimer = setInterval(() => {}, 500);
       break;
     case "tool_end": {
       const t = activeTools.value.find((x) => x.name === e.data.tool && !x.done);
@@ -278,10 +263,7 @@ function handleEvent(e: any) {
       break;
     }
     case "gate_rejected":
-      messages.value.push({
-        role: "assistant",
-        text: `> ⚠️ 该问题不属于排查范围\n\n${e.data.message}`,
-      });
+      messages.value.push({ role: "assistant", text: e.data.message || "该问题不属于排查范围。" });
       flushStream();
       break;
     case "turn_limit":
@@ -290,6 +272,7 @@ function handleEvent(e: any) {
       break;
     case "done":
       flushStream();
+      refreshRun();
       break;
     case "error":
       flushStream();
@@ -311,25 +294,42 @@ function flushStream() {
   setTimeout(() => (activeTools.value = []), 400);
 }
 
+async function refreshRun() {
+  if (!run.value) return;
+  try {
+    run.value = await getRun(run.value.id);
+    turnLimitReached.value = (run.value.turn_limit - run.value.message_count) <= 0;
+    loadSessions();
+  } catch {
+    /* ignore */
+  }
+}
+
 async function send() {
-  if (!run.value || !draft.value.trim() || busy.value) return;
   const text = draft.value.trim();
+  if (!text || busy.value) return;
   draft.value = "";
   busy.value = true;
   streamText.value = "";
   activeTools.value = [];
   try {
-    await sendMessage(run.value.id, text, env.value);
-    run.value = await getRun(run.value.id);
-    if ((run.value.turn_limit - run.value.message_count) <= 0) {
-      turnLimitReached.value = true;
+    if (!run.value) {
+      // 首条消息：自动创建会话（后端从文本识别 mode/app/查询值）
+      const r = await createRun({ env: env.value, text });
+      run.value = r;
+      connectStream(r.id);
     }
+    await sendMessage(run.value.id, text, env.value);
+    await refreshRun();
   } catch (err: any) {
     if (err.status === 429) {
       turnLimitReached.value = true;
       messages.value.push({ role: "assistant", text: err.message });
-    } else {
+    } else if (run.value) {
       messages.value.push({ role: "assistant", text: `> ❌ 发送失败: ${err.message}` });
+    } else {
+      run.value = null;
+      alert(`创建排查失败: ${err.message}`);
     }
   } finally {
     busy.value = false;
@@ -337,59 +337,227 @@ async function send() {
   scrollBottom();
 }
 
-onBeforeUnmount(() => {
-  if (toolTimer) clearInterval(toolTimer);
-  ws?.close();
-});
+onMounted(loadSessions);
+onBeforeUnmount(disconnect);
 </script>
 
 <style scoped>
-.chat-page {
-  flex: 1;
+.app-shell {
+  height: 100%;
   display: flex;
-  flex-direction: column;
   min-width: 0;
 }
 
-/* 顶栏 */
-.chat-top {
+/* ---------- 侧边栏 ---------- */
+.sidebar {
+  width: 264px;
   flex: 0 0 auto;
-  height: 48px;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 20px;
+  flex-direction: column;
+  border-right: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+.side-head {
+  padding: 16px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
   border-bottom: 1px solid var(--line);
 }
 
-.status-led {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ink-faint);
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
 }
 
-.status-led.on {
-  background: var(--ok);
-  box-shadow: 0 0 8px var(--ok);
+.logo-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
 }
 
-.title-text {
-  font-size: 13px;
+.logo-name {
+  font-weight: 650;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+}
+
+.new-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0;
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  background: transparent;
   color: var(--ink);
-  max-width: 320px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.new-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(45, 212, 191, 0.06);
+}
+
+.plus {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.side-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.session-item {
+  padding: 9px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.session-item:hover {
+  background: var(--bg-3);
+}
+
+.session-item.active {
+  background: rgba(45, 212, 191, 0.08);
+}
+
+.si-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.si-title {
+  font-size: 12.5px;
+  color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.run-id {
+.si-env {
+  flex: 0 0 auto;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.si-env.env-dev {
+  background: rgba(56, 189, 248, 0.13);
+  color: var(--accent-2);
+}
+
+.si-env.env-sit {
+  background: rgba(240, 160, 48, 0.13);
+  color: var(--warn);
+}
+
+.si-meta {
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.side-empty {
+  padding: 30px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-faint);
+  line-height: 1.8;
+}
+
+.side-foot {
+  padding: 10px 14px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.foot-link {
+  font-size: 12px;
+  color: var(--ink-dim);
+  text-decoration: none;
+}
+
+.foot-link:hover {
+  color: var(--accent);
+}
+
+.foot-status {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.foot-status.on {
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+}
+
+/* ---------- 主区 ---------- */
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-top {
+  flex: 0 0 auto;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--line);
+}
+
+.run-info {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.run-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 400px;
+}
+
+.run-title.idle {
+  color: var(--ink-faint);
+  font-weight: 400;
+}
+
+.run-meta {
   font-size: 11px;
   color: var(--ink-faint);
 }
 
 .env-switch {
-  margin-left: auto;
   display: flex;
   border: 1px solid var(--line-2);
   border-radius: 8px;
@@ -402,7 +570,7 @@ onBeforeUnmount(() => {
   color: var(--ink-dim);
   font-family: var(--mono);
   font-size: 12px;
-  padding: 5px 16px;
+  padding: 5px 18px;
   cursor: pointer;
   letter-spacing: 1px;
   transition: all 0.15s;
@@ -418,97 +586,65 @@ onBeforeUnmount(() => {
   color: var(--warn);
 }
 
-.turns {
-  font-size: 12px;
-  color: var(--ink-dim);
-  padding: 0 4px;
-}
-
-.turns.low {
-  color: var(--warn);
-}
-
-/* 初始化表单 */
-.setup {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.setup-card {
-  width: 560px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 24px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
-}
-
-.setup-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-
-.setup-title {
-  font-size: 17px;
-  font-weight: 600;
-}
-
-.setup-sub {
-  font-size: 10px;
-  color: var(--ink-faint);
-  letter-spacing: 2px;
-}
-
-.setup-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.setup-query {
-  margin-bottom: 12px;
-}
-
-.setup-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.start-btn {
-  background: var(--accent);
-  border: none;
-  color: #06241f;
-  font-weight: 600;
-}
-
-.start-btn:hover {
-  background: #4be0cc;
-}
-
 /* 消息区 */
 .messages {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 24px 20px 12px;
+  padding: 26px 22px 10px;
+}
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.empty-mark {
+  width: 46px;
+  height: 46px;
+  border: 1.5px solid var(--line-2);
+  border-radius: 13px;
+  margin-bottom: 10px;
+  position: relative;
+}
+
+.empty-mark::after {
+  content: "";
+  position: absolute;
+  inset: 11px;
+  border-radius: 6px;
+  background: rgba(45, 212, 191, 0.22);
+}
+
+.empty-title {
+  font-size: 15px;
+  color: var(--ink-dim);
+  margin: 0;
+}
+
+.empty-hint {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin: 4px 0 0;
+  line-height: 1.9;
 }
 
 .msg {
   display: flex;
   gap: 12px;
-  margin-bottom: 20px;
-  animation: rise 0.25s ease;
+  margin-bottom: 22px;
+  animation: rise 0.22s ease;
 }
 
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(5px);
   }
   to {
     opacity: 1;
@@ -517,43 +653,35 @@ onBeforeUnmount(() => {
 }
 
 .msg-avatar {
-  flex: 0 0 34px;
-  height: 34px;
+  flex: 0 0 30px;
+  height: 30px;
   border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 650;
 }
 
 .msg.user .msg-avatar {
-  background: rgba(56, 189, 248, 0.18);
+  background: rgba(56, 189, 248, 0.16);
   color: var(--accent-2);
 }
 
 .msg.assistant .msg-avatar {
-  background: rgba(45, 212, 191, 0.16);
+  background: rgba(45, 212, 191, 0.14);
   color: var(--accent);
 }
 
-.msg-body {
+.msg-content {
   flex: 1;
   min-width: 0;
   max-width: 860px;
 }
 
-.msg.user .msg-body {
-  background: var(--bg-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px 14px;
-  align-self: flex-start;
-}
-
 .msg-text {
-  line-height: 1.7;
   font-size: 13.5px;
+  line-height: 1.75;
   color: var(--ink);
   word-break: break-word;
 }
@@ -608,7 +736,6 @@ onBeforeUnmount(() => {
   margin: 12px 0 6px;
 }
 
-/* 工具卡片 */
 .tool-strip {
   display: flex;
   flex-wrap: wrap;
@@ -674,52 +801,79 @@ onBeforeUnmount(() => {
   }
 }
 
-.thinking-hint {
+.thinking {
   font-size: 11px;
   color: var(--ink-faint);
   letter-spacing: 1px;
 }
 
 /* 输入区 */
-.input-area {
+.input-bar {
   flex: 0 0 auto;
-  padding: 10px 20px 16px;
+  padding: 12px 22px 18px;
 }
 
-.input-wrap {
+.input-box {
   display: flex;
-  gap: 10px;
   align-items: flex-end;
-  max-width: 960px;
+  gap: 10px;
+  max-width: 900px;
   margin: 0 auto;
+  background: var(--bg-2);
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  padding: 8px 8px 8px 16px;
+  transition: border-color 0.15s;
 }
 
-.input-wrap :deep(.el-textarea__inner) {
-  min-height: 56px !important;
-  padding: 12px 14px;
+.input-box:focus-within {
+  border-color: var(--accent);
+}
+
+.input-box textarea {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 13.5px;
+  resize: none;
+  line-height: 1.6;
+  max-height: 160px;
+  padding: 6px 0;
+}
+
+.input-box textarea::placeholder {
+  color: var(--ink-faint);
 }
 
 .send-btn {
-  height: 56px;
-  width: 96px;
-  background: var(--accent);
+  flex: 0 0 auto;
   border: none;
+  background: var(--accent);
   color: #06241f;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 650;
+  padding: 9px 22px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
 }
 
-.send-btn:hover {
+.send-btn:hover:not(:disabled) {
   background: #4be0cc;
 }
 
-.input-wrap.locked {
-  opacity: 0.5;
+.send-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .input-hint {
   text-align: center;
   color: var(--warn);
   font-size: 12px;
-  margin-top: 6px;
+  margin-top: 7px;
 }
 </style>

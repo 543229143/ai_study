@@ -197,7 +197,7 @@ def collect(
     mode: str = "both",
     time_from: str = LOG_TIME_FROM_TRACE_ID,
     time_to: str = "now",
-    size: int = 200,
+    size: int = 500,
     errors_only: bool = True,
     error_guard_size: int = 50,
     query_mode: str = "trace_id",
@@ -327,7 +327,7 @@ def collect_multi(
     mode: str = "both",
     time_from: str = LOG_TIME_FROM_TRACE_ID,
     time_to: str = "now",
-    size: int = 200,
+    size: int = 500,
     errors_only: bool = True,
     error_guard_size: int = 50,
     query_mode: str = "trace_id",
@@ -336,7 +336,7 @@ def collect_multi(
     log_collect_profile: str = "",
     primary_app: str = "",
 ) -> dict:
-    """多应用日志：各 container 并行查 ES（默认 Top 200），再合并时间线。
+    """多应用日志：各 container 并行查 ES（默认 Top 500），再合并时间线。
 
     focused（errors_only=False）时每应用默认双查：异常保底 + 全级别上下文。
 
@@ -464,7 +464,7 @@ def main() -> None:
     )
     parser.add_argument("--from-time", default=LOG_TIME_FROM_TRACE_ID, dest="time_from")
     parser.add_argument("--to-time", default="now", dest="time_to")
-    parser.add_argument("--size", type=int, default=200)
+    parser.add_argument("--size", type=int, default=500)
     parser.add_argument(
         "--error-guard-size",
         type=int,

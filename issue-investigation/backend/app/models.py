@@ -9,17 +9,17 @@ Env = Literal["dev", "sit"]
 Mode = Literal["trace_id", "alert", "biz_key"]
 Scope = Literal["primary_only", "all", "custom"]
 
-
 class CreateRunRequest(BaseModel):
-    env: Env
-    app: str = Field(default="lps", description="主应用（lcs/goa/ams/lps）")
-    mode: Mode = "trace_id"
+    env: Env = "dev"
+    app: Optional[str] = None
+    mode: Optional[Mode] = None
     trace_id: Optional[str] = None
     alert: Optional[str] = None
     biz_key: Optional[str] = None
     phenomenon: Optional[str] = None
-    scope: Scope = "primary_only"
+    scope: Optional[Scope] = None
     custom_apps: Optional[list[str]] = None
+    text: Optional[str] = None  # 提供时自动识别 mode/app/查询值（简化入口）
 
 
 class SendMessageRequest(BaseModel):

@@ -70,8 +70,7 @@ watch(() => route.params.id, load);
 
 <style scoped>
 .detail-page {
-  flex: 1;
-  min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;

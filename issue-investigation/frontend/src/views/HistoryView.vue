@@ -1,6 +1,7 @@
 <template>
   <div class="history-page">
     <div class="history-head">
+      <el-button text size="small" @click="$router.back()">← 返回</el-button>
       <span class="h-title">历史排查记录</span>
       <span class="h-sub mono">{{ runs.length }} SESSIONS</span>
       <el-button size="small" text @click="load" :loading="loading">刷新</el-button>
@@ -60,8 +61,7 @@ onMounted(load);
 
 <style scoped>
 .history-page {
-  flex: 1;
-  min-width: 0;
+  height: 100%;
   padding: 24px 28px;
   overflow-y: auto;
 }

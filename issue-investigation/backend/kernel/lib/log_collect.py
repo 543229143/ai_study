@@ -1,7 +1,7 @@
 """日志采集策略：广扫 vs 单服务深入。"""
 from __future__ import annotations
 
-LOG_SIZE_PER_APP = 200
+LOG_SIZE_PER_APP = 500
 # focused 双查：异常保底条数（ERROR/Exception 通常远少于此，不必与全级别同量）
 LOG_SIZE_ERROR_GUARD = 50
 
