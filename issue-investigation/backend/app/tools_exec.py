@@ -153,8 +153,13 @@ def db_query(run_id: str, seq: int, params: dict) -> dict:
     if not plan or plan.get("need_db") is False:
         return {"need_db": False, "note": "无需查库"}
 
-    normalized = validate_and_normalize_plan(plan, env=env)
-    save_agent_db_plan(out, normalized)
+    normalized, plan_meta = validate_and_normalize_plan(plan, env=env)
+    save_agent_db_plan(out, {
+        "source": plan_meta.get("source") or "agent",
+        "need_db": bool(normalized),
+        "reason": plan_meta.get("reason") or "",
+        "queries": normalized,
+    })
 
     ctx = {
         "env": env,
@@ -164,6 +169,8 @@ def db_query(run_id: str, seq: int, params: dict) -> dict:
         "scope": "primary_only",
         "scenario": "default",
     }
+    # 内核 db 阶段要求 run_dir 已有 evidence.json（含 context），此处补最小骨架
+    write_json(out / "evidence.json", {"context": ctx})
     started = time.time()
     evidence = run_collection(config.KERNEL_REPO_ROOT, ctx, out, phase="db")
     db = evidence.get("database") or {}

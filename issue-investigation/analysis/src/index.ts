@@ -171,6 +171,8 @@ async function createSession(runId: string) {
     agentDir: AGENT_DIR,
     modelRuntime,
     customTools: TOOLS,
+    noTools: "builtin",
+    tools: TOOLS.map((t) => t.name),
     resourceLoader: loader,
     sessionManager,
   });
@@ -211,6 +213,8 @@ async function resumeSession(runId: string): Promise<SessionHandle> {
     agentDir: AGENT_DIR,
     modelRuntime,
     customTools: TOOLS,
+    noTools: "builtin",
+    tools: TOOLS.map((t) => t.name),
     resourceLoader: loader,
     sessionManager: SessionManager.open(files[0], sessionDir),
   });
