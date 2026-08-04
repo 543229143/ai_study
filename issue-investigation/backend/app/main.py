@@ -26,3 +26,14 @@ app.include_router(ws_router)
 @app.get("/health")
 async def health():
     return {"status": "ok", "data_dir": str(config.DATA_DIR)}
+
+
+@app.get("/")
+async def root():
+    return {
+        "name": "Issue Investigation Platform",
+        "message": "这是后端服务，请使用前端界面：http://localhost:5178",
+        "frontend": "http://localhost:5178",
+        "docs": "/docs",
+        "health": "/health",
+    }
