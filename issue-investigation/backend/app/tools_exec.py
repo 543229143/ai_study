@@ -47,6 +47,9 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
     query = params.get("query") or params.get("trace_id") or ""
     alert = params.get("alert") or ""
     biz = params.get("biz_key") or ""
+    # 关键修复：biz_key/alert 模式必须把值接进 ES 查询，否则空串必 0 命中
+    if not query:
+        query = biz or alert or ""
     time_from = params.get("time_from") or default_log_time_from(mode)
     apps = params.get("apps") or [app]
     out = _artifact_dir(run_id, "collect_logs", seq) / "logs.json"
