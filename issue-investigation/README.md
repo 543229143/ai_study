@@ -5,7 +5,7 @@
 ## 架构
 
 ```
-浏览器 (Vue3 + Element Plus)  ──WS/HTTP──▶  FastAPI 后端 :8000  ──HTTP──▶  Pi 分析服务 :8100
+浏览器 (Vue3 + Element Plus)  ──WS/HTTP──▶  FastAPI 后端 :8600  ──HTTP──▶  Pi 分析服务 :8700
                                                    │                          │
                                              排查内核 (kernel/)          pi-agent-core SDK
                                              ES/MySQL/Nacos/源码           LLM (opencode-go)
@@ -22,7 +22,7 @@
 # 1. 后端（首次自动装依赖）
 cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/uvicorn app.main:app --port 8000
+.venv/bin/uvicorn app.main:app --port 8600
 
 # 2. Pi 分析服务（复用 ~/.pi/agent 的 LLM 配置，自动拷贝到 data/pi-agent/）
 cd analysis
@@ -32,7 +32,7 @@ bun run src/index.ts
 # 3. 前端
 cd frontend
 npm install
-npm run dev          # http://localhost:5173
+npm run dev          # http://localhost:5178
 ```
 
 或一键：`./dev.sh`
@@ -51,7 +51,7 @@ npm run dev          # http://localhost:5173
 |---|---|---|
 | `INV_WORKSPACE_ROOT` | `/Users/zhaoxin/code/inner` | 4 业务仓父目录（代码扫描） |
 | `INV_DATA_DIR` | 项目下 `data/` | 产物根目录 |
-| `INV_PI_BASE_URL` | `http://127.0.0.1:8100` | Pi sidecar 地址 |
+| `INV_PI_BASE_URL` | `http://127.0.0.1:8700` | Pi sidecar 地址 |
 | `INV_PI_TOOL_TOKEN` | `local-dev-token` | 工具端点鉴权 |
 | `INV_LLM_MODEL` | `deepseek-v4-flash` | 门禁/分析模型 |
 

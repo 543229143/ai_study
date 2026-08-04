@@ -22,8 +22,8 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 
-const PORT = Number(process.env.INV_ANALYSIS_PORT || 8100);
-const BACKEND_URL = process.env.INV_BACKEND_URL || "http://127.0.0.1:8000";
+const PORT = Number(process.env.INV_ANALYSIS_PORT || 8700);
+const BACKEND_URL = process.env.INV_BACKEND_URL || "http://127.0.0.1:8600";
 const TOOL_TOKEN = process.env.INV_PI_TOOL_TOKEN || "local-dev-token";
 const DATA_DIR = process.env.INV_DATA_DIR || join(import.meta.dir, "..", "..", "data");
 const HOME_AGENT_DIR = process.env.PI_AGENT_DIR_HOME || join(process.env.HOME || ".", ".pi", "agent");

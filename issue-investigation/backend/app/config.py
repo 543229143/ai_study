@@ -19,7 +19,7 @@ KERNEL_REPO_ROOT = Path(
     os.environ.get("INV_KERNEL_REPO_ROOT") or WORKSPACE_ROOT / "lcs"
 )
 
-PI_BASE_URL = os.environ.get("INV_PI_BASE_URL", "http://127.0.0.1:8100")
+PI_BASE_URL = os.environ.get("INV_PI_BASE_URL", "http://127.0.0.1:8700")
 PI_TOOL_TOKEN = os.environ.get("INV_PI_TOOL_TOKEN", "local-dev-token")
 
 # 意图门禁 LLM 通道（opencode-go，OpenAI 兼容）

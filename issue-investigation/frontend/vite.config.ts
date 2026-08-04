@@ -5,12 +5,12 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     host: true,
-    port: 5173,
+    port: 5178,
     proxy: {
-      "/runs": { target: "http://127.0.0.1:8000", changeOrigin: true, ws: true },
-      "/tools": { target: "http://127.0.0.1:8000", changeOrigin: true },
-      "/events": { target: "http://127.0.0.1:8000", changeOrigin: true },
-      "/health": { target: "http://127.0.0.1:8000", changeOrigin: true },
+      "/runs": { target: "http://127.0.0.1:8600", changeOrigin: true, ws: true },
+      "/tools": { target: "http://127.0.0.1:8600", changeOrigin: true },
+      "/events": { target: "http://127.0.0.1:8600", changeOrigin: true },
+      "/health": { target: "http://127.0.0.1:8600", changeOrigin: true },
     },
   },
 });
