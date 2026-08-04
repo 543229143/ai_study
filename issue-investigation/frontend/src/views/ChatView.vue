@@ -102,7 +102,7 @@
         <div class="input-box">
           <textarea
             v-model="draft"
-            rows="1"
+            rows="2"
             :disabled="!!run && (turnLimitReached || busy)"
             :placeholder="inputPlaceholder"
             @keydown.enter.exact.prevent="send"
@@ -840,8 +840,9 @@ onBeforeUnmount(disconnect);
   font-size: 13.5px;
   resize: none;
   line-height: 1.6;
-  max-height: 160px;
-  padding: 6px 0;
+  min-height: 72px;
+  max-height: 200px;
+  padding: 10px 0;
 }
 
 .input-box textarea::placeholder {
