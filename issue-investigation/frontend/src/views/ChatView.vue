@@ -14,7 +14,7 @@
 
       <div class="side-list">
         <div
-          v-for="s in sessions"
+          v-for="s in filteredSessions"
           :key="s.id"
           class="session-item"
           :class="{ active: run && run.id === s.id }"
@@ -28,8 +28,9 @@
             {{ fmtTime(s.updated_at) }} · {{ s.message_count }} 轮
           </div>
         </div>
-        <div v-if="!sessions.length" class="side-empty">
-          暂无排查记录<br />输入问题即可开始
+        <div v-if="!filteredSessions.length" class="side-empty">
+          <template v-if="sessions.length">暂无 {{ env.toUpperCase() }} 环境的排查记录<br />输入问题即可开始</template>
+          <template v-else>暂无排查记录<br />输入问题即可开始</template>
         </div>
       </div>
 
@@ -164,6 +165,7 @@ let rafId = 0;
 let mdTimer: ReturnType<typeof setTimeout> | null = null;
 
 const remaining = computed(() => (run.value ? run.value.turn_limit - run.value.message_count : 10));
+const filteredSessions = computed(() => sessions.value.filter((s) => s.env === env.value));
 const inputPlaceholder = computed(() => {
   if (!run.value) return "描述要排查的问题，按回车或点击开始排查…";
   if (turnLimitReached.value) return "已达上限，请新建排查";
