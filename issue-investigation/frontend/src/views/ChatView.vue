@@ -46,7 +46,12 @@
         <div class="run-info">
           <template v-if="run">
             <span class="run-title">{{ run.title }}</span>
-            <span class="run-meta mono">#{{ run.id }} · {{ costText }}</span>
+            <span
+              class="run-meta mono"
+              :class="{ copied: copied }"
+              title="双击复制编号"
+              @dblclick="copyRunId"
+            >#{{ run.id }} · {{ copied ? '已复制 ✓' : costText }}</span>
           </template>
           <span v-else class="run-title idle">未开始排查</span>
         </div>
@@ -156,7 +161,21 @@ const running = ref(false);
 const turnLimitReached = ref(false);
 const wsOk = ref(false);
 const cost = ref<number | null>(null);
+const copied = ref(false);
 const msgBox = ref<HTMLElement | null>(null);
+let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+
+async function copyRunId() {
+  if (!run.value) return;
+  try {
+    await navigator.clipboard.writeText(run.value.id);
+    copied.value = true;
+    if (copiedTimer) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copied.value = false), 1500);
+  } catch {
+    /* 剪贴板不可用时忽略 */
+  }
+}
 
 const costText = computed(() => {
   if (cost.value === null || isNaN(cost.value)) return "$-";
@@ -588,6 +607,12 @@ onBeforeUnmount(disconnect);
 .run-meta {
   font-size: 11px;
   color: var(--ink-faint);
+  cursor: copy;
+  user-select: all;
+}
+
+.run-meta.copied {
+  color: var(--ok);
 }
 
 .env-switch {
