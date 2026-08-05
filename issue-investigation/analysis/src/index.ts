@@ -474,7 +474,13 @@ function groupMessages(entries: any[]): any[] {
     const role = m.role;
     if (role === "toolResult") continue;
     if (role === "user") {
-      out.push({ role: "user", text: stripUserPrefix(extractText(m)), ts: m.timestamp });
+      const text = stripUserPrefix(extractText(m));
+      // 去重：连续相同的用户提问（自动续跑会重发同一条消息，避免历史重复显示）
+      const lastUser = [...out].reverse().find((x: any) => x.role === "user");
+      if (lastUser && lastUser.text === text) {
+        continue;
+      }
+      out.push({ role: "user", text, ts: m.timestamp });
       cur = null;
       continue;
     }
@@ -531,9 +537,24 @@ function groupMessages(entries: any[]): any[] {
     }
   }
   // 过滤空 assistant 轮（既无文本也无工具调用）
-  return out.filter(
+  const filtered = out.filter(
     (m: any) => !(m.role === "assistant" && !m.text && !m.tool_calls.length),
   );
+
+  // 中断检测：最后一条原始条目不是"stop"结尾的 assistant 消息 → 最后一轮未完成
+  // （重启/被杀时文件通常停在 toolUse 消息、toolResult 或 user 消息之后）
+  const lastRaw = entries[entries.length - 1];
+  const lastTurnIncomplete = !lastRaw
+    || lastRaw.role === "user"
+    || lastRaw.role === "toolResult"
+    || (lastRaw.role === "assistant" && lastRaw.stopReason !== "stop");
+  if (filtered.length) {
+    const last = filtered[filtered.length - 1];
+    if (last.role === "assistant") {
+      last.incomplete = lastTurnIncomplete;
+    }
+  }
+  return filtered;
 }
 
 function extractText(m: any): string {

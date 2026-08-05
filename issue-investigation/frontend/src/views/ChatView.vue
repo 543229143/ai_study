@@ -158,6 +158,15 @@
         </div>
       </div>
 
+      <!-- 中断提示横幅 -->
+      <div class="interrupt-bar" v-if="interrupted">
+        <span class="interrupt-icon">⚠️</span>
+        <span class="interrupt-text">上次排查被中断（未完成），可继续排查或重新提问</span>
+        <button class="resume-btn" :disabled="resuming" @click="resumeLastTurn">
+          {{ resuming ? '继续中…' : '继续排查' }}
+        </button>
+      </div>
+
       <!-- 底部输入 -->
       <div class="input-bar">
         <div class="input-box">
@@ -242,6 +251,8 @@ const cost = ref<number | null>(null);
 const copied = ref(false);
 const stopping = ref(false);
 const aborted = ref(false);
+const interrupted = ref(false);
+const resuming = ref(false);
 const streamTokens = ref(0);
 const streamSpeed = ref(0);
 const modelName = ref("deepseek-v4-flash");
@@ -455,7 +466,7 @@ async function openSession(s: Run) {
   }
   cost.value = await getCost(s.id);
   connectStream(s.id);
-  maybeAutoResume();
+  await checkInterrupted();
   scrollBottom();
 }
 
@@ -467,7 +478,7 @@ function connectStream(id: string) {
   ws.onopen = () => {
     wsOk.value = true;
     reconnectAttempts = 0;
-    maybeAutoResume();
+    checkInterrupted();
   };
   ws.onclose = () => {
     wsOk.value = false;
@@ -500,20 +511,28 @@ function disconnect() {
   ws = null;
 }
 
-/** 自动续跑：重启中断后检测到 run 仍 pending 且 agent 未在处理 → 重发最后一条用户消息。 */
-let resumeOnce = new Set<string>();
+/** 中断检测：run 标记 pending 且 agent 未在处理且最后一轮未完成 → 显示"继续排查"横幅。 */
+async function checkInterrupted() {
+  if (!run.value) {
+    interrupted.value = false;
+    return;
+  }
+  const status = await getRunStatus(run.value.id);
+  if (!status.pending || status.processing || status.sidecar_unreachable) {
+    interrupted.value = false;
+    return;
+  }
+  const lastAi = [...messages.value].reverse().find((m) => m.role === "assistant");
+  interrupted.value = !lastAi || !!lastAi.incomplete;
+}
 
-async function maybeAutoResume() {
-  if (!run.value) return;
-  const rid = run.value.id;
-  if (resumeOnce.has(rid)) return;
-  const status = await getRunStatus(rid);
-  // 触发条件：run 标记 pending（有未完成的排查）+ agent 不在处理（重启后内存已清）+ sidecar 可达
-  if (!status.pending || status.processing || status.sidecar_unreachable) return;
+/** 手动继续：重发最后一条用户消息（跳过门禁、不计轮次）。 */
+async function resumeLastTurn() {
+  if (!run.value || resuming.value) return;
   const lastUser = [...messages.value].reverse().find((m) => m.role === "user");
   if (!lastUser || !lastUser.text.trim()) return;
-  resumeOnce.add(rid);
-  pushMsg({ role: "assistant", text: "> 🔄 检测到上次排查因服务重启中断，正在自动继续…" });
+  resuming.value = true;
+  interrupted.value = false;
   running.value = true;
   streamText.value = "";
   streamHtml.value = "";
@@ -521,11 +540,15 @@ async function maybeAutoResume() {
   streamTokens.value = 0;
   turnStartAt = Date.now();
   try {
-    await sendMessage(rid, lastUser.text.trim(), env.value, true);
+    await sendMessage(run.value.id, lastUser.text.trim(), env.value, true);
+    await refreshRun();
   } catch (err: any) {
     running.value = false;
-    pushMsg({ role: "assistant", text: `> ❌ 自动续跑失败: ${err.message}` });
+    pushMsg({ role: "assistant", text: `> ❌ 继续排查失败: ${err.message}` });
+  } finally {
+    resuming.value = false;
   }
+  scrollBottom();
 }
 
 /** 重连后/打开会话时从服务端同步消息，补回断线期间丢失的事件。
@@ -543,7 +566,7 @@ async function syncFromServer() {
     }));
     if (running.value) {
       const last = list[list.length - 1];
-      if (last.role === "assistant" && !last.usage) {
+      if (last.role === "assistant" && last.incomplete) {
         list = list.slice(0, -1);
       }
     }
@@ -622,7 +645,7 @@ async function refreshTurn() {
     try {
       const msgs = await getMessages(run.value.id);
       const lastAi = [...msgs].reverse().find((m) => m.role === "assistant");
-      if (msgs.length > prevCount && lastAi?.usage) {
+      if (msgs.length > prevCount && lastAi && !lastAi.incomplete) {
         messages.value = msgs.map((m) => ({
           ...m,
           html: renderMd(m.text),
@@ -1355,6 +1378,50 @@ onBeforeUnmount(disconnect);
 }
 
 /* 输入区 */
+.interrupt-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 22px 0;
+  padding: 9px 14px;
+  background: rgba(240, 160, 48, 0.1);
+  border: 1px solid rgba(240, 160, 48, 0.35);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--warn);
+}
+
+.interrupt-icon {
+  font-size: 13px;
+}
+
+.interrupt-text {
+  flex: 1;
+}
+
+.resume-btn {
+  flex: 0 0 auto;
+  border: 1px solid rgba(240, 160, 48, 0.5);
+  background: rgba(240, 160, 48, 0.15);
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.resume-btn:hover:not(:disabled) {
+  background: rgba(240, 160, 48, 0.28);
+}
+
+.resume-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .input-bar {
   flex: 0 0 auto;
   padding: 12px 22px 18px;
