@@ -406,41 +406,120 @@ async function flushEvents(runId: string) {
 }
 
 function summarizeMessages(session: SessionHandle, runId: string): any[] {
-  const msgs: any[] = [];
   const stateMsgs = session.agent?.state?.messages ?? [];
-  for (const m of stateMsgs) {
-    if (m.role === "user") {
-      const text = extractText(m);
-      msgs.push({ role: "user", text });
-    } else if (m.role === "assistant") {
-      const text = extractText(m);
-      if (text) msgs.push({ role: "assistant", text, thinking: extractThinking(m) || undefined });
-    }
-  }
-  if (msgs.length > 0) return msgs;
+  if (stateMsgs.length > 0) return groupMessages(stateMsgs);
   const file = listJsonlFiles(join(AGENT_DIR, "sessions", `run-${runId}`));
   if (file.length > 0) return parseSessionFile(file[0]);
   return [];
 }
 
 function parseSessionFile(path: string): any[] {
-  const msgs: any[] = [];
+  const entries: any[] = [];
   for (const line of readFileSync(path, "utf-8").split("\n")) {
     if (!line.trim()) continue;
     try {
       const entry = JSON.parse(line);
-      if (entry.type !== "message") continue;
-      const m = entry.message ?? {};
-      const text = extractText(m);
-      if (m.role === "user") msgs.push({ role: "user", text });
-      else if (m.role === "assistant" && text) {
-        msgs.push({ role: "assistant", text, thinking: extractThinking(m) || undefined });
-      }
+      if (entry.type === "message") entries.push(entry.message ?? {});
     } catch {
       /* 跳过损坏行 */
     }
   }
-  return msgs;
+  return groupMessages(entries);
+}
+
+/** 去掉 sidecar 注入的环境头与"用户消息:"前缀，还原用户原话。 */
+function stripUserPrefix(text: string): string {
+  let t = text.trim();
+  if (t.startsWith("[当前排查环境:")) {
+    const idx = t.indexOf("用户消息:");
+    if (idx !== -1) t = t.slice(idx + "用户消息:".length);
+  }
+  while (t.startsWith("用户消息:")) {
+    t = t.replace(/^用户消息:\s*/, "");
+  }
+  return t.trim();
+}
+
+/**
+ * 按"轮次"分组：一个用户问题 = 一轮。
+ * - user 消息：原话 + 时间戳
+ * - assistant 轮：最终答案(text) + 处理详情（thinking/intermediate/tool_calls）+ usage + model + 时间戳
+ */
+function groupMessages(entries: any[]): any[] {
+  const out: any[] = [];
+  const toolResults = new Map<string, any>();
+  let cur: any = null;
+
+  for (const m of entries) {
+    const role = m.role;
+    if (role === "toolResult") {
+      for (const c of m.content ?? []) {
+        const r = c?.toolCallResult;
+        if (r?.toolCallId) toolResults.set(r.toolCallId, r);
+      }
+      continue;
+    }
+    if (role === "user") {
+      out.push({ role: "user", text: stripUserPrefix(extractText(m)), ts: m.timestamp });
+      cur = null;
+      continue;
+    }
+    if (role !== "assistant") continue;
+
+    const text = extractText(m);
+    const thinking = extractThinking(m);
+    const calls = (m.content ?? [])
+      .filter((c: any) => c?.type === "toolCall")
+      .map((c: any) => {
+        const r = toolResults.get(c.id) ?? {};
+        return {
+          name: c.name ?? "",
+          args:
+            typeof c.arguments === "string"
+              ? c.arguments
+              : JSON.stringify(c.arguments ?? "", null, 1),
+          result:
+            typeof r.output === "string"
+              ? r.output
+              : JSON.stringify(r.output ?? "", null, 1),
+          error: !!r.isError,
+        };
+      });
+
+    if (!cur) {
+      cur = {
+        role: "assistant",
+        text: "",
+        thinking: "",
+        intermediate: [],
+        tool_calls: [],
+        ts: m.timestamp,
+        model: m.model ?? "",
+        usage: null,
+      };
+      out.push(cur);
+    }
+    if (text) {
+      if (cur.text) cur.intermediate.push(cur.text);
+      cur.text = text;
+    }
+    if (thinking) cur.thinking += (cur.thinking ? "\n\n" : "") + thinking;
+    if (calls.length) cur.tool_calls.push(...calls);
+    cur.ts = m.timestamp;
+    if (m.model) cur.model = m.model;
+    if (m.usage) {
+      cur.usage = {
+        input: m.usage.input ?? 0,
+        output: m.usage.output ?? 0,
+        cacheRead: m.usage.cacheRead ?? 0,
+        cost: m.usage.cost?.total ?? 0,
+      };
+    }
+  }
+  // 过滤空 assistant 轮（既无文本也无工具调用）
+  return out.filter(
+    (m: any) => !(m.role === "assistant" && !m.text && !m.tool_calls.length),
+  );
 }
 
 function extractText(m: any): string {

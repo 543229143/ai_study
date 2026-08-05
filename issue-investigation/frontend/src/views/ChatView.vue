@@ -24,7 +24,7 @@
             <span class="si-title">{{ s.title }}</span>
           </div>
           <div class="si-meta mono">
-            {{ fmtTime(s.updated_at) }} · {{ s.message_count }} 轮
+            {{ fmtTimeShort(s.updated_at) }} · {{ s.message_count }} 轮
           </div>
         </div>
         <div v-if="!filteredSessions.length" class="side-empty">
@@ -77,30 +77,73 @@
         </div>
 
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
-          <div class="msg-avatar">{{ m.role === 'user' ? '我' : 'AI' }}</div>
-          <div class="msg-content">
-            <!-- 历史消息：思考过程默认折叠 -->
-            <div v-if="m.role === 'assistant' && m.thinking" class="thinking-block">
-              <button class="thinking-toggle" @click="m.collapsed = !m.collapsed">
-                <span class="chevron" :class="{ open: !m.collapsed }">▸</span>
-                <span class="thinking-label mono">思考过程</span>
-                <span class="thinking-state mono">{{ m.collapsed ? '已折叠' : '展开' }}</span>
-              </button>
-              <div v-if="!m.collapsed" class="thinking-body">{{ m.thinking }}</div>
+          <template v-if="m.role === 'user'">
+            <div class="msg-content user-bubble">
+              <div class="msg-text" v-html="m.html || renderMd(m.text)"></div>
+              <div class="msg-time mono" v-if="m.ts">{{ fmtTime(m.ts) }}</div>
             </div>
-            <div class="msg-text" v-html="m.html || renderMd(m.text)"></div>
-          </div>
+          </template>
+          <template v-else>
+            <div class="msg-avatar">AI</div>
+            <div class="msg-content">
+              <div class="msg-head mono" v-if="m.model">{{ m.model }}</div>
+              <div class="msg-text" v-html="m.html || renderMd(m.text)"></div>
+
+              <!-- 处理详情（pi-web 风格，默认折叠，不含思考过程） -->
+              <div v-if="m.intermediate?.length || m.tool_calls?.length" class="details-block">
+                <button class="details-toggle" @click="m.collapsed = !m.collapsed">
+                  <span class="chevron" :class="{ open: !m.collapsed }">▸</span>
+                  <span class="details-label mono">处理详情</span>
+                  <span class="details-count mono">
+                    · {{ m.intermediate?.length || 0 }} 条消息
+                    · {{ m.tool_calls?.length || 0 }} 次工具调用
+                  </span>
+                </button>
+                <div v-if="!m.collapsed" class="details-body">
+                  <div v-if="m.intermediate?.length" class="details-section">
+                    <div class="details-sec-title mono">中间过程</div>
+                    <div v-for="(it, j) in m.intermediate" :key="j" class="details-text">{{ it }}</div>
+                  </div>
+                  <div v-if="m.tool_calls?.length" class="details-section">
+                    <div class="details-sec-title mono">工具调用</div>
+                    <div v-for="(tc, j) in m.tool_calls" :key="j" class="tool-call">
+                      <div class="tool-call-head">
+                        <span class="tool-call-name mono" :class="{ err: tc.error }">{{ tc.name }}</span>
+                        <span v-if="tc.error" class="tool-call-err mono">ERROR</span>
+                      </div>
+                      <div class="tool-call-part" v-if="tc.args && tc.args !== '{}'">
+                        <span class="mono tool-call-label">args</span>
+                        <pre class="tool-call-pre">{{ tc.args }}</pre>
+                      </div>
+                      <div class="tool-call-part" v-if="tc.result">
+                        <span class="mono tool-call-label">result</span>
+                        <pre class="tool-call-pre">{{ tc.result }}</pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- usage + 成本 + 时间脚注 -->
+              <div class="msg-foot mono" v-if="m.usage || m.ts">
+                <template v-if="m.usage">
+                  {{ m.usage.input.toLocaleString() }} in ·
+                  {{ m.usage.output.toLocaleString() }} out ·
+                  {{ m.usage.cacheRead.toLocaleString() }} cache R ·
+                  {{ fmtCost(m.usage.cost) }}
+                </template>
+                <template v-if="m.ts"> · {{ fmtTime(m.ts) }}</template>
+              </div>
+            </div>
+          </template>
         </div>
 
-        <!-- 执行中：实时展示流式文本 + 思考过程（完成后自动折叠） -->
-        <div class="msg assistant" v-if="running || streamText || thinkingText">
+        <!-- 执行中：只展示流式文本（思考过程完成后再进处理详情） -->
+        <div class="msg assistant" v-if="running || streamText">
           <div class="msg-avatar">AI</div>
           <div class="msg-content">
-            <div v-if="thinkingText" class="thinking-block">
-              <div class="thinking-body live">{{ thinkingText }}</div>
-            </div>
             <div class="msg-text" v-if="streamHtml" v-html="streamHtml"></div>
-            <div class="thinking-hint mono" v-if="running && !streamText && !thinkingText">推理中…</div>
+            <div class="thinking-hint mono" v-if="running && !streamText">推理中…</div>
           </div>
         </div>
       </div>
@@ -144,12 +187,31 @@ import {
   type Run,
 } from "../api";
 
+interface ToolCallInfo {
+  name: string;
+  args: string;
+  result: string;
+  error: boolean;
+}
+
+interface UsageInfo {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cost: number;
+}
+
 interface Msg {
   role: string;
   text: string;
   html?: string;
+  ts?: number;
+  model?: string;
   thinking?: string;
-  collapsed?: boolean; // 历史消息的思考过程是否折叠（默认折叠）
+  intermediate?: string[];
+  tool_calls?: ToolCallInfo[];
+  usage?: UsageInfo;
+  collapsed?: boolean; // 处理详情默认折叠
 }
 
 const env = ref<"dev" | "sit">("dev");
@@ -255,9 +317,21 @@ function pushMsg(m: Msg) {
 }
 
 function fmtTime(ts: number): string {
+  const d = new Date(ts);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function fmtTimeShort(ts: number): string {
   const d = new Date(ts * 1000);
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function fmtCost(c: number | undefined): string {
+  if (c === undefined || isNaN(c)) return "$-";
+  if (c >= 0.01) return `$${c.toFixed(2)}`;
+  return `$${c.toFixed(4)}`;
 }
 
 function autoGrow(e: Event) {
@@ -304,11 +378,11 @@ async function openSession(s: Run) {
   env.value = s.env;
   turnLimitReached.value = (s.turn_limit - s.message_count) <= 0;
   const msgs = await getMessages(s.id);
-  // 加载的历史消息：思考过程默认折叠
+  // 服务端按轮次分组：最终答案 + 处理详情（默认折叠）
   messages.value = msgs.map((m) => ({
     ...m,
     html: renderMd(m.text),
-    collapsed: m.role === "assistant" && !!m.thinking,
+    collapsed: m.role === "assistant",
   }));
   // 历史中被用户停止的排查：补一条停止标记
   if ((s.timeline || []).some((t) => t.event === "aborted")) {
@@ -336,7 +410,7 @@ function disconnect() {
   ws = null;
 }
 
-function handleEvent(e: any) {
+async function handleEvent(e: any) {
   switch (e.type) {
     case "user_message":
       // 前端已乐观回显，WS 事件跳过（避免重复）
@@ -366,6 +440,7 @@ function handleEvent(e: any) {
       if (aborted.value) break;
       if (typeof e.data?.cost === "number") cost.value = e.data.cost;
       flushStream();
+      await refreshTurn();
       refreshRun();
       break;
     case "error":
@@ -379,18 +454,36 @@ function handleEvent(e: any) {
 function flushStream() {
   const text = streamText.value.trim();
   const thinking = thinkingText.value.trim();
-  if (text) {
-    pushMsg({
-      role: "assistant",
-      text,
-      thinking: thinking || undefined,
-      collapsed: true, // 有结果后思考过程自动折叠
-    });
-  }
+  // 完成后立即用服务端分组消息替换（含最终答案/处理详情/usage），本地缓冲不再单独入列
   streamText.value = "";
   streamHtml.value = "";
   thinkingText.value = "";
   running.value = false;
+  void text;
+  void thinking;
+}
+
+/** 回答完成后从服务端拉取分组消息，替换整条列表（最终答案 + 折叠处理详情 + usage）。
+ *  done 事件与会话落盘存在竞态，拉取不到新轮次时最多重试 3 次。 */
+async function refreshTurn() {
+  if (!run.value) return;
+  const prevCount = messages.value.length;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const msgs = await getMessages(run.value.id);
+      if (msgs.length > prevCount) {
+        messages.value = msgs.map((m) => ({
+          ...m,
+          html: renderMd(m.text),
+          collapsed: m.role === "assistant",
+        }));
+        return;
+      }
+    } catch {
+      /* 继续重试 */
+    }
+    await new Promise((r) => setTimeout(r, 600));
+  }
 }
 
 async function refreshRun() {
@@ -741,6 +834,22 @@ onBeforeUnmount(disconnect);
   animation: rise 0.22s ease;
 }
 
+/* 用户消息：右对齐气泡 */
+.msg.user {
+  justify-content: flex-end;
+}
+
+.msg.user .msg-content {
+  max-width: 70%;
+}
+
+.user-bubble {
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 12px 12px 4px 12px;
+  padding: 10px 14px;
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -763,11 +872,6 @@ onBeforeUnmount(disconnect);
   font-weight: 650;
 }
 
-.msg.user .msg-avatar {
-  background: rgba(56, 189, 248, 0.16);
-  color: var(--accent-2);
-}
-
 .msg.assistant .msg-avatar {
   background: rgba(45, 212, 191, 0.14);
   color: var(--accent);
@@ -777,6 +881,41 @@ onBeforeUnmount(disconnect);
   flex: 1;
   min-width: 0;
   max-width: 860px;
+}
+
+/* AI 消息头：模型名 */
+.msg-head {
+  font-size: 10.5px;
+  color: var(--accent-2);
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.msg-head::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background: var(--accent-2);
+}
+
+/* AI 消息脚注：usage + 成本 + 时间 */
+.msg-foot {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  letter-spacing: 0.3px;
+}
+
+/* 用户消息时间 */
+.msg-time {
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  text-align: right;
 }
 
 .msg-text {
@@ -836,12 +975,12 @@ onBeforeUnmount(disconnect);
   margin: 12px 0 6px;
 }
 
-/* 思考过程块：终端方格风格折叠头 */
-.thinking-block {
-  margin-bottom: 6px;
+/* 处理详情（pi-web 风格，默认折叠） */
+.details-block {
+  margin-top: 10px;
 }
 
-.thinking-toggle {
+.details-toggle {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -855,10 +994,19 @@ onBeforeUnmount(disconnect);
   transition: all 0.15s;
 }
 
-.thinking-toggle:hover {
+.details-toggle:hover {
   border-color: var(--line-2);
   color: var(--ink-dim);
   background: var(--bg-2);
+}
+
+.details-label {
+  letter-spacing: 1px;
+}
+
+.details-count {
+  font-size: 10px;
+  color: var(--ink-faint);
 }
 
 .chevron {
@@ -873,41 +1021,119 @@ onBeforeUnmount(disconnect);
   color: var(--accent);
 }
 
-.thinking-label {
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-}
-
-.thinking-state {
-  font-size: 10px;
-  padding-left: 6px;
-  border-left: 1px solid var(--line);
-  color: var(--ink-faint);
-}
-
-.thinking-body {
-  margin-top: 6px;
+.details-body {
+  margin-top: 8px;
   padding: 12px 14px;
   background: rgba(11, 15, 20, 0.6);
   border: 1px solid var(--line);
   border-left: 2px solid var(--line-2);
   border-radius: 3px;
+}
+
+.details-section {
+  margin-bottom: 12px;
+}
+
+.details-section:last-child {
+  margin-bottom: 0;
+}
+
+.details-sec-title {
+  font-size: 10px;
+  color: var(--ink-faint);
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+.details-text {
   font-size: 12px;
   line-height: 1.7;
   color: var(--ink-dim);
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 260px;
-  overflow-y: auto;
+  margin-bottom: 6px;
 }
 
-.thinking-body.live {
+.details-text:last-child {
+  margin-bottom: 0;
+}
+
+.details-block.live .details-text {
   animation: breathe 2s ease-in-out infinite;
+}
+
+.live-text {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 @keyframes breathe {
   0%, 100% { opacity: 0.75; }
   50% { opacity: 1; }
+}
+
+/* 工具调用明细 */
+.tool-call {
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tool-call:last-child {
+  margin-bottom: 0;
+}
+
+.tool-call-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--bg-2);
+}
+
+.tool-call-name {
+  font-size: 11px;
+  color: var(--accent-2);
+}
+
+.tool-call-name.err {
+  color: var(--danger);
+}
+
+.tool-call-err {
+  font-size: 9px;
+  color: var(--danger);
+  border: 1px solid rgba(242, 84, 91, 0.4);
+  padding: 0 5px;
+  border-radius: 3px;
+}
+
+.tool-call-part {
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+}
+
+.tool-call-label {
+  font-size: 9px;
+  color: var(--ink-faint);
+  margin-bottom: 3px;
+  display: block;
+}
+
+.tool-call-pre {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: var(--mono);
 }
 
 .thinking-hint {
