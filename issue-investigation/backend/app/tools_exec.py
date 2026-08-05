@@ -8,7 +8,7 @@ import json
 import time
 from pathlib import Path
 
-from . import config
+from . import config, config_store
 from .kernel_io import write_json
 
 _kernel_ready = False
@@ -35,6 +35,21 @@ def _repo_roots(apps: list[str]) -> dict[str, Path]:
     return {a: Path(p) for a, p in roots.items()}
 
 
+def _ordered_apps(run_id: str, apps: list[str]) -> list[str]:
+    """扫描应用清单：命中配置的应用排序在前（优先），其余配置应用也扫描（不排除）。
+
+    最终清单 = 命中优先应用 + 全部配置应用 + agent 自定义应用（若有）。
+    """
+    from . import store
+
+    run = store.get_run(run_id)
+    pri = [a for a in (run or {}).get("priority_apps") or [] if a]
+    cfg_apps = config_store.app_names()
+    extra = [a for a in (apps or []) if a not in cfg_apps and a not in pri]
+    order = pri + [a for a in cfg_apps if a not in pri] + extra
+    return order or list(cfg_apps) or (apps or [])
+
+
 def collect_logs(run_id: str, seq: int, params: dict) -> dict:
     """ES 日志采集。params: env, app, mode, query/alert/biz, scope, apps[]"""
     _ensure_kernel()
@@ -51,7 +66,7 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
     if not query:
         query = biz or alert or ""
     time_from = params.get("time_from") or default_log_time_from(mode)
-    apps = params.get("apps") or [app]
+    apps = _ordered_apps(run_id, params.get("apps") or [app])
     out = _artifact_dir(run_id, "collect_logs", seq) / "logs.json"
 
     started = time.time()
@@ -114,7 +129,7 @@ def scan_code(run_id: str, seq: int, params: dict) -> dict:
     _ensure_kernel()
     from scan_code_context import scan_multi
 
-    apps = params.get("apps") or [params.get("app") or "lps"]
+    apps = _ordered_apps(run_id, params.get("apps") or [params.get("app") or "lps"])
     keywords = params.get("keywords") or []
     log_messages = params.get("log_messages") or None
     out = _artifact_dir(run_id, "scan_code", seq) / "scan.json"
@@ -147,7 +162,6 @@ def nacos_query(run_id: str, seq: int, params: dict) -> dict:
     apps = params.get("apps") or [params.get("app") or "lps"]
     keys = params.get("keys") or []
     out = _artifact_dir(run_id, "nacos_query", seq) / "nacos.json"
-
     roots = _repo_roots(apps)
     started = time.time()
     result = collect_multi(apps, env, repo_roots=roots, keys=keys or None, output=out)
@@ -168,6 +182,29 @@ def nacos_query(run_id: str, seq: int, params: dict) -> dict:
     }
 
 
+def _apply_db_name_overrides(queries: list[dict], env: str) -> list[dict]:
+    """应用配置的数据库名覆盖（apps.json db_name > env-connections schemas > 应用名）。
+
+    只重写 SQL 中的库限定名 `old_schema`.xxx → `db_name`.xxx；未配置 db_name 时原样。
+    """
+    _ensure_kernel()
+    from lib.env_config import get_schema_name
+
+    out = []
+    for q in queries:
+        app = str(q.get("app") or "").lower()
+        db_name = config_store.db_name_of(app)
+        sql = q.get("sql") or ""
+        if db_name and sql:
+            try:
+                schema = get_schema_name(env, app)
+            except RuntimeError:
+                schema = app
+            sql = sql.replace(f"`{schema}`", f"`{db_name}`")
+        out.append({**q, "sql": sql})
+    return out
+
+
 def db_query(run_id: str, seq: int, params: dict) -> dict:
     """只读 DB 查询。params: env, plan(json)，plan 结构同 agent_db_plan.json。"""
     _ensure_kernel()
@@ -181,6 +218,7 @@ def db_query(run_id: str, seq: int, params: dict) -> dict:
         return {"need_db": False, "note": "无需查库"}
 
     normalized, plan_meta = validate_and_normalize_plan(plan, env=env)
+    normalized = _apply_db_name_overrides(normalized, env)
     save_agent_db_plan(out, {
         "source": plan_meta.get("source") or "agent",
         "need_db": bool(normalized),

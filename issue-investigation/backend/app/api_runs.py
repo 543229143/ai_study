@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
 
 from . import config
-from . import events, gate, pi_client, store
+from . import config_store, events, gate, pi_client, store
 from .kernel_io import read_json, read_text
 from .models import CreateRunRequest, SendMessageRequest
 
@@ -21,23 +21,28 @@ _TURN_LIMIT_MESSAGE = "本轮排查已达 10 轮沟通上限，请新建会话�
 
 
 def detect_from_text(text: str, env: str, app: str | None) -> dict:
-    """从用户文本自动识别排查参数（简化入口）。"""
+    """从用户文本自动识别排查参数（应用清单/业务键/术语来自 data/config/apps.json）。"""
     t = text.strip()
+    app_names = config_store.app_names() or ["lps"]
+    hits = config_store.detect_hits(t)
     out = {
         "mode": "trace_id",
         "trace_id": "",
         "alert": "",
         "biz_key": "",
-        "app": (app or "lps").strip().lower(),
+        "app": (app or "").strip().lower(),
         "scope": "primary_only",
+        "biz_hits": hits["biz_hits"],
+        "priority_apps": config_store.priority_apps(hits),
     }
-    if out["app"] not in ("lcs", "goa", "ams", "lps"):
-        out["app"] = "lps"
-    # 主应用识别：文本中出现的应用名
-    for a in ("lcs", "goa", "ams", "lps"):
-        if re.search(rf"\b{a}\b", t.lower()):
-            out["app"] = a
-            break
+    if out["app"] not in app_names:
+        # 主应用：用户显式词 > 业务键/术语命中 > 默认
+        out["app"] = (
+            hits["explicit_app"]
+            or (hits["biz_hits"][0]["app"] if hits["biz_hits"] else "")
+            or (hits["term_apps"][0] if hits["term_apps"] else "")
+            or app_names[0]
+        )
     hex32 = re.search(r"\b([a-f0-9]{32})\b", t, re.I)
     if hex32:
         out["mode"] = "trace_id"
@@ -92,6 +97,8 @@ async def create_run(req: CreateRunRequest):
         "phenomenon": req.phenomenon or "",
         "scope": req.scope,
         "custom_apps": req.custom_apps or [],
+        "biz_hits": fields.get("biz_hits") if req.text else [],
+        "priority_apps": fields.get("priority_apps") if req.text else [],
     })
     # Pi 会话懒创建（sidecar 首次 prompt 时自动建），此处后台预热不阻塞返回
     await _warm_pi_session(run["id"], run["env"])
@@ -162,8 +169,15 @@ async def send_message(run_id: str, req: SendMessageRequest):
     store.set_pending(run_id, True)
     await events.publish(run_id, {"type": "user_message", "data": {"text": req.text}})
 
+    # 识别提示注入：本条消息命中业务键/术语时，头部附加提示供 agent 生成查询/扫描计划
+    text = req.text
+    hits = config_store.detect_hits(text)
+    hint = config_store.build_hint(hits)
+    if hint:
+        text = f"[识别提示: {hint}]\n\n{text}"
+
     try:
-        await pi_client.send_message(run_id, req.text, env, history=history_texts if not req.resume else None)
+        await pi_client.send_message(run_id, text, env, history=history_texts if not req.resume else None)
     except Exception as exc:  # noqa: BLE001
         store.set_pending(run_id, False)
         await events.publish(run_id, {"type": "error", "data": {"message": f"转发 Pi 失败: {exc}"}})

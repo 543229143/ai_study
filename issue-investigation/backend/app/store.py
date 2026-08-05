@@ -51,6 +51,8 @@ def create_run(meta: dict) -> dict:
         "phenomenon": meta.get("phenomenon") or "",
         "scope": meta.get("scope", "primary_only"),
         "custom_apps": meta.get("custom_apps") or [],
+        "biz_hits": meta.get("biz_hits") or [],
+        "priority_apps": meta.get("priority_apps") or [],
         "status": "created",
         "message_count": 0,
         "turn_limit": config.TURN_LIMIT,

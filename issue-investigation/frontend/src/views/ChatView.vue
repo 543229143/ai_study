@@ -55,16 +55,19 @@
           </template>
           <span v-else class="run-title idle">未开始排查</span>
         </div>
-        <div class="env-switch">
-          <button
-            v-for="e in ['dev', 'sit']"
-            :key="e"
-            class="env-btn"
-            :class="[env === e ? 'active' : '', `env-${e}`]"
-            @click="env = e"
-          >
-            {{ e.toUpperCase() }}
-          </button>
+        <div class="main-top-right">
+          <router-link to="/config" class="cfg-link mono">配置</router-link>
+          <div class="env-switch">
+            <button
+              v-for="e in ['dev', 'sit']"
+              :key="e"
+              class="env-btn"
+              :class="[env === e ? 'active' : '', `env-${e}`]"
+              @click="env = e"
+            >
+              {{ e.toUpperCase() }}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -941,6 +944,27 @@ onBeforeUnmount(disconnect);
   border-radius: 4px;
   overflow: hidden;
   background: var(--bg);
+}
+
+.main-top-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cfg-link {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  text-decoration: none;
+  padding: 3px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.cfg-link:hover {
+  color: var(--ink);
+  border-color: var(--warn);
 }
 
 .env-btn {

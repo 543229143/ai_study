@@ -46,6 +46,35 @@ export interface ChatMessage {
   text: string;
 }
 
+export interface BizKeyRule {
+  pattern: string;
+  table: string;
+  field: string;
+}
+
+export interface AppConfig {
+  db_name: string;
+  biz_keys: BizKeyRule[];
+}
+
+export interface TermConfig {
+  term: string;
+  apps: string[];
+}
+
+export interface PlatformConfig {
+  apps: Record<string, AppConfig>;
+  terms: TermConfig[];
+}
+
+export function getConfig(): Promise<PlatformConfig> {
+  return api("/config");
+}
+
+export function updateConfig(cfg: PlatformConfig): Promise<{ saved: boolean; errors?: string[] }> {
+  return api("/config", { method: "PUT", body: JSON.stringify(cfg) });
+}
+
 export function createRun(payload: Record<string, unknown>): Promise<Run> {
   return api("/runs", { method: "POST", body: JSON.stringify(payload) });
 }

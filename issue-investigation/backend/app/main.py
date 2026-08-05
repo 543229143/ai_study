@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import config
+from .api_config import router as config_router
 from .api_runs import router as runs_router
 from .api_tools import router as tools_router
 from .api_ws import router as ws_router
@@ -35,6 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(config_router)
 app.include_router(runs_router)
 app.include_router(tools_router)
 app.include_router(ws_router)

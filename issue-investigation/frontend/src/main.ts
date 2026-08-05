@@ -9,6 +9,7 @@ import App from "./App.vue";
 import ChatView from "./views/ChatView.vue";
 import HistoryView from "./views/HistoryView.vue";
 import DetailView from "./views/DetailView.vue";
+import ConfigView from "./views/ConfigView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -16,6 +17,7 @@ const router = createRouter({
     { path: "/", name: "chat", component: ChatView },
     { path: "/history", name: "history", component: HistoryView },
     { path: "/runs/:id", name: "detail", component: DetailView },
+    { path: "/config", name: "config", component: ConfigView },
   ],
 });
 

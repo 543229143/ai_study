@@ -41,6 +41,7 @@ npm run dev          # http://localhost:5178
 
 - **对话式排查**：单输入框提问（traceId/告警/业务单号均可）→ Agent 自主调用工具（collect_logs / scan_code / nacos_query / db_query / run_investigation / read_artifact）→ 流式输出结论
 - **环境/主应用自动识别**：文本显式提到 sit/dev 时自动切换环境；应用/模式/业务键从描述自动解析，用户无需感知内部概念
+- **应用/术语配置页**（`/config`）：应用清单（不再写死 4 个）、数据库名（空则取应用名）、业务键规则（单号→表/字段）、业务术语→应用映射；命中业务键/术语时自动带出表字段并注入排查，命中应用**优先扫描**（不排除其他应用）；保存即时生效
 - **pi-web 风格界面**：左侧会话栏（按环境过滤）+ 聊天区 + 单输入框；AI 回答=最终答案+折叠的"处理详情"（中间过程+工具调用，逐个可展开）；脚注显示模型/usage/成本/时间
 - **多轮追问**：同一会话延续上下文，可中途切换 dev/sit
 - **单会话 10 轮上限**（门禁拦截与自动续跑不计轮次）
@@ -63,6 +64,30 @@ npm run dev          # http://localhost:5178
 | `VITE_WS_BASE`（frontend/.env.development） | `127.0.0.1:8600` | 浏览器 WS 直连后端地址（局域网共享时改本机 IP） |
 
 LLM key 自动读 `~/.pi/agent/auth.json`（provider: opencode-go），无需配置。
+
+## 应用/术语配置（`/config` 页面）
+
+配置存 `data/config/apps.json`（无页面时可直接编辑，保存即时生效）：
+
+```json
+{
+  "apps": {
+    "lps": {
+      "db_name": "",                      // 数据库名，留空 = 取应用名（再回退 env-connections schemas）
+      "biz_keys": [                       // 业务键规则：单号命中 → 自动带出 表/字段
+        {"pattern": "LO\\d{10,}", "table": "loan", "field": "loan_no"}
+      ]
+    }
+  },
+  "terms": [                              // 业务术语 → 应用（可多选）
+    {"term": "借据号", "apps": ["lps"]}
+  ]
+}
+```
+
+- **识别链路**：用户消息命中业务键正则 → run 元数据记 `biz_hits`（全部命中，含 应用/表/字段），消息转发时头部注入 `[识别提示: …]`，agent 生成 db_query 计划时直接使用配置的表字段
+- **扫描优先级**：命中应用在 collect_logs/scan_code 的应用清单中排序在前（优先），其余配置应用同样扫描
+- **新增应用边界**：新应用除在配置页添加外，需同步 `backend/kernel/references/app-catalog.json` 注册基础元数据（primary_schema/container/nacos），否则内核校验失败
 
 ## Pi 升级 SOP
 
