@@ -192,6 +192,7 @@ import {
   getMessages,
   getModelName,
   getRun,
+  getRunStatus,
   listRuns,
   openStream,
   sendMessage,
@@ -454,6 +455,7 @@ async function openSession(s: Run) {
   }
   cost.value = await getCost(s.id);
   connectStream(s.id);
+  maybeAutoResume();
   scrollBottom();
 }
 
@@ -465,6 +467,7 @@ function connectStream(id: string) {
   ws.onopen = () => {
     wsOk.value = true;
     reconnectAttempts = 0;
+    maybeAutoResume();
   };
   ws.onclose = () => {
     wsOk.value = false;
@@ -495,6 +498,34 @@ function disconnect() {
   }
   ws?.close();
   ws = null;
+}
+
+/** 自动续跑：重启中断后检测到 run 仍 pending 且 agent 未在处理 → 重发最后一条用户消息。 */
+let resumeOnce = new Set<string>();
+
+async function maybeAutoResume() {
+  if (!run.value) return;
+  const rid = run.value.id;
+  if (resumeOnce.has(rid)) return;
+  const status = await getRunStatus(rid);
+  // 触发条件：run 标记 pending（有未完成的排查）+ agent 不在处理（重启后内存已清）+ sidecar 可达
+  if (!status.pending || status.processing || status.sidecar_unreachable) return;
+  const lastUser = [...messages.value].reverse().find((m) => m.role === "user");
+  if (!lastUser || !lastUser.text.trim()) return;
+  resumeOnce.add(rid);
+  pushMsg({ role: "assistant", text: "> 🔄 检测到上次排查因服务重启中断，正在自动继续…" });
+  running.value = true;
+  streamText.value = "";
+  streamHtml.value = "";
+  thinkingText.value = "";
+  streamTokens.value = 0;
+  turnStartAt = Date.now();
+  try {
+    await sendMessage(rid, lastUser.text.trim(), env.value, true);
+  } catch (err: any) {
+    running.value = false;
+    pushMsg({ role: "assistant", text: `> ❌ 自动续跑失败: ${err.message}` });
+  }
 }
 
 /** 重连后/打开会话时从服务端同步消息，补回断线期间丢失的事件。

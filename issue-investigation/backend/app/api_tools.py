@@ -76,8 +76,12 @@ async def post_event(run_id: str, body: dict, x_tool_token: str | None = Header(
         for ev in batch:
             if isinstance(ev, dict):
                 await events.publish(run_id, ev)
+                if ev.get("type") in ("done", "error"):
+                    store.set_pending(run_id, False)
     else:
         await events.publish(run_id, body)
+        if body.get("type") in ("done", "error"):
+            store.set_pending(run_id, False)
     return {"ok": True}
 
 

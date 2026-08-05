@@ -71,11 +71,24 @@ export async function getCost(id: string): Promise<number> {
   }
 }
 
-export function sendMessage(id: string, text: string, env: string) {
+export function sendMessage(id: string, text: string, env: string, resume = false) {
   return api(`/runs/${id}/messages`, {
     method: "POST",
-    body: JSON.stringify({ text, env }),
+    body: JSON.stringify({ text, env, resume }),
   });
+}
+
+export async function getRunStatus(id: string): Promise<{
+  pending: boolean;
+  pending_since: number | null;
+  processing: boolean;
+  sidecar_unreachable: boolean;
+}> {
+  try {
+    return await api(`/runs/${id}/status`);
+  } catch {
+    return { pending: false, pending_since: null, processing: false, sidecar_unreachable: true };
+  }
 }
 
 export function getReport(id: string): Promise<string> {

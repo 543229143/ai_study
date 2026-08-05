@@ -41,6 +41,17 @@ async def abort_session(run_id: str) -> None:
         resp.raise_for_status()
 
 
+async def get_session_status(run_id: str) -> dict:
+    """查询 pi 侧会话运行状态：{processing, has_session}。失败按未运行处理。"""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(f"{config.PI_BASE_URL}/sessions/{run_id}/status")
+            resp.raise_for_status()
+            return resp.json()
+    except Exception:  # noqa: BLE001
+        return {"processing": False, "has_session": False, "unreachable": True}
+
+
 async def create_session(run_id: str, env: str) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(

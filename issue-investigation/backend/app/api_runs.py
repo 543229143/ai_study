@@ -140,30 +140,50 @@ async def send_message(run_id: str, req: SendMessageRequest):
     if env != run.get("env"):
         run = store.update_env(run_id, env)
 
-    history = await pi_client.get_messages(run_id)
-    history_texts = [m.get("text", "") for m in history if m.get("role") in ("user", "assistant")]
+    if not req.resume:
+        # 正常发送：过门禁 + 计轮次
+        history = await pi_client.get_messages(run_id)
+        history_texts = [m.get("text", "") for m in history if m.get("role") in ("user", "assistant")]
 
-    verdict = gate.gate_check(req.text, is_first=(run.get("message_count") or 0) == 0, history=history_texts)
-    if not verdict["allow"]:
-        # 持久化拦截记录（刷新/重开会话后仍可见），再推送实时事件
-        store.append_rejected(run_id, req.text, _REJECT_MESSAGE)
-        await events.publish(run_id, {
-            "type": "gate_rejected",
-            "data": {"reason": verdict["reason"], "message": _REJECT_MESSAGE},
-        })
-        return {"status": "rejected", "reason": verdict["reason"]}
+        verdict = gate.gate_check(req.text, is_first=(run.get("message_count") or 0) == 0, history=history_texts)
+        if not verdict["allow"]:
+            # 持久化拦截记录（刷新/重开会话后仍可见），再推送实时事件
+            store.append_rejected(run_id, req.text, _REJECT_MESSAGE)
+            await events.publish(run_id, {
+                "type": "gate_rejected",
+                "data": {"reason": verdict["reason"], "message": _REJECT_MESSAGE},
+            })
+            return {"status": "rejected", "reason": verdict["reason"]}
 
-    store.update_run(run_id, {"message_count": (run.get("message_count") or 0) + 1, "env": env})
-    store.append_timeline(run_id, "message_sent", req.text[:80])
+        store.update_run(run_id, {"message_count": (run.get("message_count") or 0) + 1, "env": env})
+        store.append_timeline(run_id, "message_sent", req.text[:80])
 
+    # 标记进行中；done/error/abort 事件到达后清除
+    store.set_pending(run_id, True)
     await events.publish(run_id, {"type": "user_message", "data": {"text": req.text}})
 
     try:
-        await pi_client.send_message(run_id, req.text, env, history=history_texts)
+        await pi_client.send_message(run_id, req.text, env, history=history_texts if not req.resume else None)
     except Exception as exc:  # noqa: BLE001
+        store.set_pending(run_id, False)
         await events.publish(run_id, {"type": "error", "data": {"message": f"转发 Pi 失败: {exc}"}})
         raise HTTPException(502, f"Pi 转发失败: {exc}")
     return {"status": "accepted"}
+
+
+@router.get("/{run_id}/status")
+async def get_run_status(run_id: str):
+    run = store.get_run(run_id)
+    if run is None:
+        raise HTTPException(404, "run not found")
+    status = await pi_client.get_session_status(run_id)
+    return {
+        "run_id": run_id,
+        "pending": bool(run.get("pending")),
+        "pending_since": run.get("pending_since"),
+        "processing": bool(status.get("processing")),
+        "sidecar_unreachable": bool(status.get("unreachable")),
+    }
 
 
 @router.post("/{run_id}/abort")

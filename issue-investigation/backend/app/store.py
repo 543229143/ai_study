@@ -54,6 +54,8 @@ def create_run(meta: dict) -> dict:
         "status": "created",
         "message_count": 0,
         "turn_limit": config.TURN_LIMIT,
+        "pending": False,           # 是否有进行中的排查（转发消息后置 True，done/error/abort 后置 False）
+        "pending_since": None,      # 置 pending 的时间戳
         "pi_session_id": "",
         "created_at": now,
         "updated_at": now,
@@ -119,6 +121,19 @@ def update_env(run_id: str, env: str) -> dict:
 
 def has_turn_quota(run: dict) -> bool:
     return (run.get("message_count") or 0) < (run.get("turn_limit") or config.TURN_LIMIT)
+
+
+def set_pending(run_id: str, pending: bool) -> None:
+    """标记 run 是否有进行中的排查（转发消息置 True；done/error/abort 置 False）。"""
+    run = get_run(run_id)
+    if run is None:
+        return
+    patch = {"pending": pending}
+    if pending:
+        patch["pending_since"] = time.time()
+    else:
+        patch["pending_since"] = None
+    update_run(run_id, patch)
 
 
 def rejected_path(run_id: str) -> Path:

@@ -636,6 +636,14 @@ Bun.serve({
       return Response.json({ run_id: runId, cost: Number(computeCost(runId).toFixed(6)) });
     }
 
+    if (req.method === "GET" && parts[0] === "sessions" && parts[2] === "status") {
+      const runId = parts[1];
+      // processing：该 run 是否仍有未完成的 prompt（重启后内存清空 → false）
+      const processing = (pendingPrompts.get(runId) || 0) > 0;
+      const hasSession = sessions.has(runId);
+      return Response.json({ run_id: runId, processing, has_session: hasSession });
+    }
+
     return Response.json({ error: "not found" }, { status: 404 });
   },
 });

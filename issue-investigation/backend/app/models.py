@@ -25,6 +25,7 @@ class CreateRunRequest(BaseModel):
 class SendMessageRequest(BaseModel):
     text: str
     env: Optional[Env] = None  # 前端顶部当前环境，覆盖 run.env
+    resume: bool = False  # 自动续跑：跳过门禁、不计轮次（重启中断后重发最后一条消息）
 
 
 class ToolCallRequest(BaseModel):
