@@ -306,6 +306,36 @@ function mapEvent(event: any): { type: string; data: any } {
 // ---------- 事件批量推送（60ms 合并一次，减少 HTTP 请求与卡顿） ----------
 const eventQueues = new Map<string, any[]>();
 const eventTimers = new Map<string, ReturnType<typeof setInterval>>();
+const pendingPrompts = new Map<string, number>(); // runId -> 进行中的 prompt 数
+const lastActivity = new Map<string, number>(); // runId -> 最近一次事件时间
+
+const IDLE_TIMEOUT_MS = Number(process.env.INV_IDLE_TIMEOUT_MS || 180000); // 180s 无事件视为卡死
+
+function touchActivity(runId: string) {
+  lastActivity.set(runId, Date.now());
+}
+
+/** 看护：运行中（有未完成 prompt）且超过 IDLE_TIMEOUT_MS 无事件 → 自动停止。 */
+function startWatchdog() {
+  setInterval(() => {
+    const now = Date.now();
+    for (const [runId, pending] of pendingPrompts) {
+      if (pending <= 0) continue;
+      const last = lastActivity.get(runId) ?? now;
+      if (now - last <= IDLE_TIMEOUT_MS) continue;
+      const h = sessions.get(runId);
+      console.error(`[watchdog] run ${runId} 无事件 ${(now - last) / 1000}s，自动停止`);
+      if (h) {
+        h.session.abort().catch(() => {});
+      }
+      pendingPrompts.delete(runId);
+      forwardEvent(runId, {
+        type: "error",
+        data: { message: "排查长时间无响应（可能为网络/模型超时），已自动停止，请重试" },
+      });
+    }
+  }, 20000);
+}
 
 /** 累计会话 token 成本（USD）：累加各 assistant 消息 usage.cost.total。 */
 function computeCost(runId: string): number {
@@ -340,6 +370,7 @@ function computeCost(runId: string): number {
 
 function forwardEvent(runId: string, ev: { type: string; data: any }) {
   if (ev.type === "ignored") return;
+  touchActivity(runId);
   if (ev.type === "done") {
     // 每轮回答完成时动态带出累计成本
     ev.data = { ...(ev.data || {}), cost: Number(computeCost(runId).toFixed(6)) };
@@ -463,10 +494,18 @@ Bun.serve({
       }
       const prompt = `[当前排查环境: ${env}]（所有日志/库表/配置查询均按 ${env} 执行；如与之前声明不一致，以此为准）\n\n用户消息: ${text}`;
       const run = async () => {
-        if (handle.session.isStreaming) {
-          await handle.session.followUp(prompt);
-        } else {
-          await handle.session.prompt(prompt);
+        pendingPrompts.set(runId, (pendingPrompts.get(runId) || 0) + 1);
+        touchActivity(runId);
+        try {
+          if (handle.session.isStreaming) {
+            await handle.session.followUp(prompt);
+          } else {
+            await handle.session.prompt(prompt);
+          }
+        } finally {
+          const n = (pendingPrompts.get(runId) || 1) - 1;
+          if (n <= 0) pendingPrompts.delete(runId);
+          else pendingPrompts.set(runId, n);
         }
       };
       run().catch((err) => {
@@ -485,6 +524,18 @@ Bun.serve({
         console.error("[messages]", runId, err);
         return Response.json([]);
       }
+    }
+
+    if (req.method === "POST" && parts[0] === "sessions" && parts[2] === "abort") {
+      const runId = parts[1];
+      const h = sessions.get(runId);
+      if (!h) return Response.json({ ok: true });
+      try {
+        await h.session.abort();
+      } catch (err) {
+        console.error("[abort]", runId, err);
+      }
+      return Response.json({ ok: true });
     }
 
     if (req.method === "GET" && parts[0] === "sessions" && parts[2] === "cost") {
@@ -509,3 +560,5 @@ function piSdkVersion(): string {
 
 console.log(`[analysis] pi sidecar listening on :${PORT}, agentDir=${AGENT_DIR}`);
 console.log(`[analysis] pi-coding-agent@${piSdkVersion()} 事件协议 v${EVENT_PROTOCOL_VERSION}`);
+
+startWatchdog();

@@ -158,6 +158,19 @@ async def send_message(run_id: str, req: SendMessageRequest):
     return {"status": "accepted"}
 
 
+@router.post("/{run_id}/abort")
+async def abort_run(run_id: str):
+    if store.get_run(run_id) is None:
+        raise HTTPException(404, "run not found")
+    try:
+        await pi_client.abort_session(run_id)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"停止失败: {exc}")
+    await events.publish(run_id, {"type": "user_aborted", "data": {}})
+    store.append_timeline(run_id, "aborted", "用户停止排查")
+    return {"ok": True}
+
+
 @router.get("/{run_id}/cost")
 async def get_cost(run_id: str):
     if store.get_run(run_id) is None:

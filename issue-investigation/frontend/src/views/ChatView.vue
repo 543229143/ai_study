@@ -116,6 +116,9 @@
             @keydown.enter.exact.prevent="send"
             @input="autoGrow"
           ></textarea>
+          <button class="stop-btn" v-if="running && !busy" :disabled="stopping" @click="stop">
+            {{ stopping ? '停止中…' : '停止' }}
+          </button>
           <button class="send-btn" :disabled="!draft.trim() || busy || (!!run && turnLimitReached)" @click="send">
             {{ busy ? '排查中' : run ? '发送' : '开始排查' }}
           </button>
@@ -130,6 +133,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { marked } from "marked";
 import {
+  api,
   createRun,
   getCost,
   getMessages,
@@ -162,6 +166,8 @@ const turnLimitReached = ref(false);
 const wsOk = ref(false);
 const cost = ref<number | null>(null);
 const copied = ref(false);
+const stopping = ref(false);
+const aborted = ref(false);
 const msgBox = ref<HTMLElement | null>(null);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -174,6 +180,19 @@ async function copyRunId() {
     copiedTimer = setTimeout(() => (copied.value = false), 1500);
   } catch {
     /* 剪贴板不可用时忽略 */
+  }
+}
+
+async function stop() {
+  if (!run.value || stopping.value) return;
+  stopping.value = true;
+  aborted.value = true;
+  try {
+    await api(`/runs/${run.value.id}/abort`, { method: "POST" });
+  } catch {
+    // 后端已推送 user_aborted 事件兜底
+  } finally {
+    stopping.value = false;
   }
 }
 
@@ -291,6 +310,14 @@ async function openSession(s: Run) {
     html: renderMd(m.text),
     collapsed: m.role === "assistant" && !!m.thinking,
   }));
+  // 历史中被用户停止的排查：补一条停止标记
+  if ((s.timeline || []).some((t) => t.event === "aborted")) {
+    messages.value.push({
+      role: "assistant",
+      text: "> ⏹ 该次排查已被用户停止",
+      html: renderMd("> ⏹ 该次排查已被用户停止"),
+    });
+  }
   cost.value = await getCost(s.id);
   connectStream(s.id);
   scrollBottom();
@@ -315,6 +342,7 @@ function handleEvent(e: any) {
       // 前端已乐观回显，WS 事件跳过（避免重复）
       break;
     case "text_delta":
+      if (aborted.value) break;
       queueDelta(e.data.text, "");
       break;
     case "thinking_delta":
@@ -329,7 +357,13 @@ function handleEvent(e: any) {
       turnLimitReached.value = true;
       pushMsg({ role: "assistant", text: e.data.message });
       break;
+    case "user_aborted":
+      flushStream();
+      messages.value.push({ role: "assistant", text: "> ⏹ 排查已停止（可继续提问或新建排查）" });
+      refreshRun();
+      break;
     case "done":
+      if (aborted.value) break;
       if (typeof e.data?.cost === "number") cost.value = e.data.cost;
       flushStream();
       refreshRun();
@@ -376,6 +410,7 @@ async function send() {
   draft.value = "";
   busy.value = true;
   running.value = true;
+  aborted.value = false;
   streamText.value = "";
   streamHtml.value = "";
   thinkingText.value = "";
@@ -949,6 +984,28 @@ onBeforeUnmount(disconnect);
   opacity: 0.4;
   cursor: not-allowed;
   box-shadow: none;
+}
+
+.stop-btn {
+  flex: 0 0 auto;
+  border: 1px solid rgba(242, 84, 91, 0.5);
+  background: rgba(242, 84, 91, 0.12);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 18px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.stop-btn:hover:not(:disabled) {
+  background: rgba(242, 84, 91, 0.22);
+}
+
+.stop-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .input-hint {

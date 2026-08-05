@@ -35,6 +35,12 @@ async def get_cost(run_id: str) -> float:
         return float(data.get("cost") or 0)
 
 
+async def abort_session(run_id: str) -> None:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.post(f"{config.PI_BASE_URL}/sessions/{run_id}/abort")
+        resp.raise_for_status()
+
+
 async def create_session(run_id: str, env: str) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
