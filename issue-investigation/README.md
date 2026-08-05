@@ -56,3 +56,44 @@ npm run dev          # http://localhost:5178
 | `INV_LLM_MODEL` | `deepseek-v4-flash` | 门禁/分析模型 |
 
 LLM key 自动读 `~/.pi/agent/auth.json`（provider: opencode-go），无需配置。
+
+## Pi 升级 SOP
+
+Pi（`@earendil-works/pi-coding-agent`）周更频繁，升级前必须按此流程执行。
+
+### 依赖面（升级必核对）
+
+| 依赖项 | 位置 | 风险 |
+|---|---|---|
+| `createAgentSession` / `defineTool` / `DefaultResourceLoader` / `ModelRuntime` | `analysis/src/index.ts` 入口 | 编译期报错可发现 |
+| `SessionManager.create/open` + 会话 JSONL 格式 | 会话持久化（`data/pi-agent/sessions/`） | 有内置迁移，但迁移失败会丢历史 |
+| **事件字段名**（message_update / text_delta / thinking_delta / tool_execution_start / tool_execution_end / message_end / agent_end） | `analysis/src/index.ts` 的 `mapEvent()` 与 `EVENT_PROTOCOL` 常量表 | ⚠️ 运行时协议，编译期发现不了，**最危险** |
+| auth.json / models.json / models-store.json 格式 | 启动时自动从 `~/.pi/agent` 拷贝 | 格式变更需删除 `data/pi-agent/` 下对应文件重启重拷 |
+| TypeBox（工具参数 schema） | `defineTool` 参数定义 | 0.83.0 曾出 TypeBox 破坏性变更 |
+
+### 升级步骤
+
+```
+1. 备份 data/pi-agent/（历史会话 + 配置）
+2. 读新版 CHANGELOG 的「Breaking Changes」段（node_modules/.../CHANGELOG.md 或 GitHub）
+3. analysis/package.json 改版本号（精确锁定，不写 ^）→ bun install
+4. 重启 sidecar，核对启动日志：
+   [analysis] pi-coding-agent@<新版本> 事件协议 v1.0   ← 版本留痕
+5. 验证四件事：
+   ① 新会话：发消息 → 工具调用正常、流式事件到达
+   ② 旧会话：打开历史 run → 能恢复对话、思考内容能读回
+   ③ 事件字段：对照 EVENT_PROTOCOL 常量表，若 pi 事件名变了更新 mapEvent
+   ④ LLM 通道：opencode-go + deepseek 推理格式正常
+6. 浏览器全流程走一遍 → 通过则提交（package.json + bun.lock）
+7. 失败 → git checkout 回滚版本 + 恢复备份
+```
+
+### 事件协议常量表（`analysis/src/index.ts`）
+
+升级后若页面收不到流式内容，先核对此表是否与新版 pi 事件名一致：
+
+| 常量 | pi 事件名 | 平台事件 |
+|---|---|---|
+| `piMessageUpdate` / `piTextDelta` / `piThinkingDelta` | `message_update`（assistantMessageEvent.type = `text_delta` / `thinking_delta`） | `text_delta` / `thinking_delta` |
+| `piToolStart` / `piToolEnd` | `tool_execution_start` / `tool_execution_end` | `tool_start` / `tool_end` |
+| `piMessageEnd` / `piAgentEnd` | `message_end` / `agent_end` | `message_end` / `done` |

@@ -258,22 +258,46 @@ function listJsonlFiles(dir: string): string[] {
 }
 
 // ---------- 事件映射与推送 ----------
+// ---------- 事件协议（升级 pi 后必核对的字段名） ----------
+/**
+ * pi 会话事件 → 平台事件的字段映射。
+ * pi 升级若改了事件类型/字段名，这里会静默失效（编译不报错），
+ * 升级后须按 README「Pi 升级 SOP」逐项核对本表。
+ */
+const EVENT_PROTOCOL = {
+  piMessageUpdate: "message_update",
+  piTextDelta: "text_delta",
+  piThinkingDelta: "thinking_delta",
+  piToolStart: "tool_execution_start",
+  piToolEnd: "tool_execution_end",
+  piMessageEnd: "message_end",
+  piAgentEnd: "agent_end",
+  outTextDelta: "text_delta",
+  outThinkingDelta: "thinking_delta",
+  outToolStart: "tool_start",
+  outToolEnd: "tool_end",
+  outDone: "done",
+} as const;
+const EVENT_PROTOCOL_VERSION = "1.0";
+
 function mapEvent(event: any): { type: string; data: any } {
   switch (event.type) {
-    case "message_update": {
+    case EVENT_PROTOCOL.piMessageUpdate: {
       const ae = event.assistantMessageEvent;
-      if (ae?.type === "text_delta") return { type: "text_delta", data: { text: ae.delta } };
-      if (ae?.type === "thinking_delta") return { type: "thinking_delta", data: { text: ae.delta } };
-      return { type: "message_update", data: {} };
+      if (ae?.type === EVENT_PROTOCOL.piTextDelta)
+        return { type: EVENT_PROTOCOL.outTextDelta, data: { text: ae.delta } };
+      if (ae?.type === EVENT_PROTOCOL.piThinkingDelta)
+        return { type: EVENT_PROTOCOL.outThinkingDelta, data: { text: ae.delta } };
+      return { type: EVENT_PROTOCOL.piMessageUpdate, data: {} };
     }
-    case "tool_execution_start":
-      return { type: "tool_start", data: { tool: event.toolName } };
-    case "tool_execution_end":
-      return { type: "tool_end", data: { tool: event.toolName, isError: event.isError } };
-    case "message_end":
+    case EVENT_PROTOCOL.piToolStart:
+      return { type: EVENT_PROTOCOL.outToolStart, data: { tool: event.toolName } };
+    case EVENT_PROTOCOL.piToolEnd:
+      return { type: EVENT_PROTOCOL.outToolEnd, data: { tool: event.toolName, isError: event.isError } };
+    case EVENT_PROTOCOL.piMessageEnd:
       return { type: "message_end", data: {} };
-    case "agent_end":
-      return { type: "done", data: {} };
+    case EVENT_PROTOCOL.piAgentEnd:
+      return { type: EVENT_PROTOCOL.outDone, data: {} };
     default:
       return { type: "ignored", data: {} };
   }
@@ -432,4 +456,16 @@ Bun.serve({
   },
 });
 
+function piSdkVersion(): string {
+  try {
+    const pkgPath = join(
+      import.meta.dir, "..", "node_modules", "@earendil-works", "pi-coding-agent", "package.json",
+    );
+    return JSON.parse(readFileSync(pkgPath, "utf-8")).version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
 console.log(`[analysis] pi sidecar listening on :${PORT}, agentDir=${AGENT_DIR}`);
+console.log(`[analysis] pi-coding-agent@${piSdkVersion()} 事件协议 v${EVENT_PROTOCOL_VERSION}`);
