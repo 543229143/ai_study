@@ -62,6 +62,15 @@ export function getMessages(id: string): Promise<ChatMessage[]> {
   return api(`/runs/${id}/messages`);
 }
 
+export async function getCost(id: string): Promise<number> {
+  try {
+    const data = await api<{ cost: number }>(`/runs/${id}/cost`);
+    return data.cost ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function sendMessage(id: string, text: string, env: string) {
   return api(`/runs/${id}/messages`, {
     method: "POST",

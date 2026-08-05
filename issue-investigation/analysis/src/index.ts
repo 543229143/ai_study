@@ -307,8 +307,43 @@ function mapEvent(event: any): { type: string; data: any } {
 const eventQueues = new Map<string, any[]>();
 const eventTimers = new Map<string, ReturnType<typeof setInterval>>();
 
+/** 累计会话 token 成本（USD）：累加各 assistant 消息 usage.cost.total。 */
+function computeCost(runId: string): number {
+  let total = 0;
+  try {
+    const h = sessions.get(runId);
+    if (h) {
+      const msgs = h.session.agent?.state?.messages ?? [];
+      for (const m of msgs) {
+        if (m.role === "assistant" && m.usage?.cost?.total) total += m.usage.cost.total;
+      }
+      return total;
+    }
+  } catch {
+    /* fallthrough 到文件解析 */
+  }
+  const files = listJsonlFiles(join(AGENT_DIR, "sessions", `run-${runId}`));
+  if (files.length === 0) return 0;
+  for (const line of readFileSync(files[0], "utf-8").split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry.type !== "message") continue;
+      const m = entry.message ?? {};
+      if (m.role === "assistant" && m.usage?.cost?.total) total += m.usage.cost.total;
+    } catch {
+      /* 跳过损坏行 */
+    }
+  }
+  return total;
+}
+
 function forwardEvent(runId: string, ev: { type: string; data: any }) {
   if (ev.type === "ignored") return;
+  if (ev.type === "done") {
+    // 每轮回答完成时动态带出累计成本
+    ev.data = { ...(ev.data || {}), cost: Number(computeCost(runId).toFixed(6)) };
+  }
   let q = eventQueues.get(runId);
   if (!q) {
     q = [];
@@ -450,6 +485,11 @@ Bun.serve({
         console.error("[messages]", runId, err);
         return Response.json([]);
       }
+    }
+
+    if (req.method === "GET" && parts[0] === "sessions" && parts[2] === "cost") {
+      const runId = parts[1];
+      return Response.json({ run_id: runId, cost: Number(computeCost(runId).toFixed(6)) });
     }
 
     return Response.json({ error: "not found" }, { status: 404 });

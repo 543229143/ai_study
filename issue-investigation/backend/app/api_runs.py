@@ -102,9 +102,9 @@ async def _warm_pi_session(run_id: str, env: str) -> None:
 async def _warm_pi_session_task(run_id: str, env: str) -> None:
     try:
         await pi_client.create_session(run_id, env)
-        await store.append_timeline(run_id, "pi_session_ready", "Pi 会话已就绪")
+        store.append_timeline(run_id, "pi_session_ready", "Pi 会话已就绪")
     except Exception as exc:  # noqa: BLE001
-        await store.append_timeline(run_id, "pi_session_warm_failed", f"Pi 会话预热失败（首次消息将自动重试）: {exc}")
+        store.append_timeline(run_id, "pi_session_warm_failed", f"Pi 会话预热失败（首次消息将自动重试）: {exc}")
 
 
 @router.get("")
@@ -156,6 +156,17 @@ async def send_message(run_id: str, req: SendMessageRequest):
         await events.publish(run_id, {"type": "error", "data": {"message": f"转发 Pi 失败: {exc}"}})
         raise HTTPException(502, f"Pi 转发失败: {exc}")
     return {"status": "accepted"}
+
+
+@router.get("/{run_id}/cost")
+async def get_cost(run_id: str):
+    if store.get_run(run_id) is None:
+        raise HTTPException(404, "run not found")
+    try:
+        cost = await pi_client.get_cost(run_id)
+    except Exception:  # noqa: BLE001
+        cost = 0.0
+    return {"run_id": run_id, "cost": cost}
 
 
 @router.get("/{run_id}/messages")

@@ -46,7 +46,7 @@
         <div class="run-info">
           <template v-if="run">
             <span class="run-title">{{ run.title }}</span>
-            <span class="run-meta mono">#{{ run.id.slice(9, 17) }} · {{ run.app }} · {{ remaining }}/{{ run.turn_limit }} 轮</span>
+            <span class="run-meta mono">#{{ run.id }} · {{ costText }}</span>
           </template>
           <span v-else class="run-title idle">未开始排查</span>
         </div>
@@ -126,6 +126,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { marked } from "marked";
 import {
   createRun,
+  getCost,
   getMessages,
   getRun,
   listRuns,
@@ -154,7 +155,14 @@ const busy = ref(false);
 const running = ref(false);
 const turnLimitReached = ref(false);
 const wsOk = ref(false);
+const cost = ref<number | null>(null);
 const msgBox = ref<HTMLElement | null>(null);
+
+const costText = computed(() => {
+  if (cost.value === null || isNaN(cost.value)) return "$-";
+  if (cost.value >= 0.01) return `$${cost.value.toFixed(2)}`;
+  return `$${cost.value.toFixed(5)}`;
+});
 
 let ws: WebSocket | null = null;
 // 增量缓冲：事件先入缓冲，rAF 合并后一次更新，减少重渲染
@@ -247,6 +255,7 @@ function newSession() {
   thinkingText.value = "";
   running.value = false;
   turnLimitReached.value = false;
+  cost.value = null;
   draft.value = "";
 }
 
@@ -263,6 +272,7 @@ async function openSession(s: Run) {
     html: renderMd(m.text),
     collapsed: m.role === "assistant" && !!m.thinking,
   }));
+  cost.value = await getCost(s.id);
   connectStream(s.id);
   scrollBottom();
 }
@@ -301,6 +311,7 @@ function handleEvent(e: any) {
       pushMsg({ role: "assistant", text: e.data.message });
       break;
     case "done":
+      if (typeof e.data?.cost === "number") cost.value = e.data.cost;
       flushStream();
       refreshRun();
       break;

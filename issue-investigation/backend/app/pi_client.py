@@ -27,6 +27,14 @@ async def get_messages(run_id: str) -> list[dict]:
         return resp.json()
 
 
+async def get_cost(run_id: str) -> float:
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.get(f"{config.PI_BASE_URL}/sessions/{run_id}/cost")
+        resp.raise_for_status()
+        data = resp.json()
+        return float(data.get("cost") or 0)
+
+
 async def create_session(run_id: str, env: str) -> dict:
     async with httpx.AsyncClient(timeout=30.0) as client:
         resp = await client.post(
