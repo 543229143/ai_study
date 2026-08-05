@@ -73,7 +73,7 @@
         <div v-if="!run && !messages.length" class="empty-state">
           <div class="empty-mark"></div>
           <p class="empty-title">描述你要排查的问题</p>
-          <p class="empty-hint">例如：查一下 traceId 95642f860689476c5bbedcef4b329ba8（32位）为什么报错<br />或：lcs 借据 LN123456789012 没有生成还款计划</p>
+          <p class="empty-hint">例如：查一下 traceId 95642f860689476c5bbedcef4b329ba8 为什么报错<br />或：lcs 借据 LO1067937042120667136 没有生成还款计划</p>
         </div>
 
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
