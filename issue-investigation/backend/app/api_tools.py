@@ -66,9 +66,15 @@ async def _run_in_executor(tool, run_id: str, seq: int, params: dict):
 
 @router.post("/events/{run_id}")
 async def post_event(run_id: str, body: dict, x_tool_token: str | None = Header(default=None)):
-    """pi sidecar 推送会话事件（text_delta / thinking / done / error）。"""
+    """pi sidecar 推送会话事件（支持单条或批量 {events: [...]}）。"""
     _check_token(x_tool_token)
-    await events.publish(run_id, body)
+    batch = body.get("events")
+    if isinstance(batch, list):
+        for ev in batch:
+            if isinstance(ev, dict):
+                await events.publish(run_id, ev)
+    else:
+        await events.publish(run_id, body)
     return {"ok": True}
 
 

@@ -63,38 +63,41 @@
         </div>
       </div>
 
-      <!-- 消息区 -->
+      <!-- 消息区：消息不依赖 run 存在即可展示（首条消息乐观回显不被空态挡住） -->
       <div class="messages" ref="msgBox">
-        <div v-if="!run" class="empty-state">
+        <div v-if="!run && !messages.length" class="empty-state">
           <div class="empty-mark"></div>
           <p class="empty-title">描述你要排查的问题</p>
           <p class="empty-hint">例如：查一下 traceId 95642f… 为什么报错<br />或：lcs 借据 LN123456789012 没有生成还款计划</p>
         </div>
 
-        <template v-else>
-          <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
-            <div class="msg-avatar">{{ m.role === 'user' ? '我' : 'AI' }}</div>
-            <div class="msg-content">
-              <div class="msg-text" v-html="renderMd(m.text)"></div>
+        <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
+          <div class="msg-avatar">{{ m.role === 'user' ? '我' : 'AI' }}</div>
+          <div class="msg-content">
+            <!-- 历史消息：思考过程默认折叠 -->
+            <div v-if="m.role === 'assistant' && m.thinking" class="thinking-block">
+              <button class="thinking-toggle" @click="m.collapsed = !m.collapsed">
+                <span class="chevron" :class="{ open: !m.collapsed }">▸</span>
+                <span class="thinking-label mono">思考过程</span>
+                <span class="thinking-state mono">{{ m.collapsed ? '已折叠' : '展开' }}</span>
+              </button>
+              <div v-if="!m.collapsed" class="thinking-body">{{ m.thinking }}</div>
             </div>
+            <div class="msg-text" v-html="m.html || renderMd(m.text)"></div>
           </div>
+        </div>
 
-          <div class="msg assistant" v-if="streamText || activeTools.length">
-            <div class="msg-avatar">AI</div>
-            <div class="msg-content">
-              <div class="tool-strip" v-if="activeTools.length">
-                <div v-for="t in activeTools" :key="t.name + t.t0" class="tool-chip" :class="t.done ? 'done' : t.error ? 'err' : ''">
-                  <span class="tool-dot"></span>
-                  <span class="mono tool-name">{{ t.name }}</span>
-                  <span class="mono tool-time" v-if="t.done">{{ t.cost }}s</span>
-                  <span class="tool-spin" v-if="!t.done"></span>
-                </div>
-              </div>
-              <div class="msg-text" v-if="streamText" v-html="renderMd(streamText)"></div>
-              <div class="thinking mono" v-if="thinking && !streamText">推理中…</div>
+        <!-- 执行中：实时展示流式文本 + 思考过程（完成后自动折叠） -->
+        <div class="msg assistant" v-if="running || streamText || thinkingText">
+          <div class="msg-avatar">AI</div>
+          <div class="msg-content">
+            <div v-if="thinkingText" class="thinking-block">
+              <div class="thinking-body live">{{ thinkingText }}</div>
             </div>
+            <div class="msg-text" v-if="streamHtml" v-html="streamHtml"></div>
+            <div class="thinking-hint mono" v-if="running && !streamText && !thinkingText">推理中…</div>
           </div>
-        </template>
+        </div>
       </div>
 
       <!-- 底部输入 -->
@@ -131,29 +134,34 @@ import {
   type Run,
 } from "../api";
 
+interface Msg {
+  role: string;
+  text: string;
+  html?: string;
+  thinking?: string;
+  collapsed?: boolean; // 历史消息的思考过程是否折叠（默认折叠）
+}
+
 const env = ref<"dev" | "sit">("dev");
 const run = ref<Run | null>(null);
 const sessions = ref<Run[]>([]);
-const messages = ref<Array<{ role: string; text: string }>>([]);
+const messages = ref<Msg[]>([]);
 const streamText = ref("");
-const thinking = ref(false);
+const streamHtml = ref("");
+const thinkingText = ref("");
 const draft = ref("");
 const busy = ref(false);
+const running = ref(false);
 const turnLimitReached = ref(false);
 const wsOk = ref(false);
 const msgBox = ref<HTMLElement | null>(null);
 
-interface ToolState {
-  name: string;
-  done: boolean;
-  error: boolean;
-  cost?: number;
-  t0: number;
-}
-const activeTools = ref<ToolState[]>([]);
-
 let ws: WebSocket | null = null;
-let toolTimer: ReturnType<typeof setInterval> | null = null;
+// 增量缓冲：事件先入缓冲，rAF 合并后一次更新，减少重渲染
+const deltaBuf = { text: "", thinking: "" };
+let rafId = 0;
+// markdown 防抖渲染
+let mdTimer: ReturnType<typeof setTimeout> | null = null;
 
 const remaining = computed(() => (run.value ? run.value.turn_limit - run.value.message_count : 10));
 const inputPlaceholder = computed(() => {
@@ -164,6 +172,39 @@ const inputPlaceholder = computed(() => {
 
 function renderMd(text: string): string {
   return marked.parse(text || "", { breaks: true }) as string;
+}
+
+/** 事件增量入缓冲，rAF 合并后一次性应用（消除每事件重渲染的卡顿）。 */
+function queueDelta(text: string, thinking: string) {
+  if (text) deltaBuf.text += text;
+  if (thinking) deltaBuf.thinking += thinking;
+  if (!rafId) {
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      if (deltaBuf.text) {
+        streamText.value += deltaBuf.text;
+        deltaBuf.text = "";
+        scheduleMd();
+      }
+      if (deltaBuf.thinking) {
+        thinkingText.value += deltaBuf.thinking;
+        deltaBuf.thinking = "";
+      }
+    });
+  }
+}
+
+/** markdown 渲染防抖（80ms）：流式期间不全量重复解析。 */
+function scheduleMd() {
+  if (mdTimer) clearTimeout(mdTimer);
+  mdTimer = setTimeout(() => {
+    mdTimer = null;
+    streamHtml.value = renderMd(streamText.value);
+  }, 80);
+}
+
+function pushMsg(m: Msg) {
+  messages.value.push({ ...m, html: m.html || renderMd(m.text) });
 }
 
 function fmtTime(ts: number): string {
@@ -180,7 +221,11 @@ function autoGrow(e: Event) {
 
 function scrollBottom() {
   nextTick(() => {
-    if (msgBox.value) msgBox.value.scrollTop = msgBox.value.scrollHeight;
+    if (!msgBox.value) return;
+    const el = msgBox.value;
+    // 用户上翻查看时不强制拉底，避免流式期间跳动
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > 120) return;
+    el.scrollTop = el.scrollHeight;
   });
 }
 
@@ -197,7 +242,9 @@ function newSession() {
   run.value = null;
   messages.value = [];
   streamText.value = "";
-  activeTools.value = [];
+  streamHtml.value = "";
+  thinkingText.value = "";
+  running.value = false;
   turnLimitReached.value = false;
   draft.value = "";
 }
@@ -208,7 +255,8 @@ async function openSession(s: Run) {
   run.value = s;
   env.value = s.env;
   turnLimitReached.value = (s.turn_limit - s.message_count) <= 0;
-  messages.value = await getMessages(s.id);
+  const msgs = await getMessages(s.id);
+  messages.value = msgs.map((m) => ({ ...m, html: renderMd(m.text) }));
   connectStream(s.id);
   scrollBottom();
 }
@@ -222,10 +270,6 @@ function connectStream(id: string) {
 }
 
 function disconnect() {
-  if (toolTimer) {
-    clearInterval(toolTimer);
-    toolTimer = null;
-  }
   ws?.close();
   ws = null;
 }
@@ -233,50 +277,30 @@ function disconnect() {
 function handleEvent(e: any) {
   switch (e.type) {
     case "user_message":
-      messages.value.push({ role: "user", text: e.data.text });
+      // 前端已乐观回显，WS 事件跳过（避免重复）
       break;
     case "text_delta":
-      streamText.value += e.data.text;
+      queueDelta(e.data.text, "");
       break;
     case "thinking_delta":
-      thinking.value = true;
+      queueDelta("", e.data.text);
       break;
-    case "tool_start":
-      activeTools.value.push({ name: e.data.tool, done: false, error: false, t0: Date.now() });
-      if (!toolTimer) toolTimer = setInterval(() => {}, 500);
-      break;
-    case "tool_end": {
-      const t = activeTools.value.find((x) => x.name === e.data.tool && !x.done);
-      if (t) {
-        t.done = true;
-        t.cost = Math.round((Date.now() - t.t0) / 1000);
-      }
-      break;
-    }
-    case "tool_error": {
-      const t = activeTools.value.find((x) => x.name === e.data.tool && !x.done);
-      if (t) {
-        t.error = true;
-        t.done = true;
-        t.cost = Math.round((Date.now() - t.t0) / 1000);
-      }
-      break;
-    }
     case "gate_rejected":
-      messages.value.push({ role: "assistant", text: e.data.message || "该问题不属于排查范围。" });
-      flushStream();
+      running.value = false;
+      pushMsg({ role: "assistant", text: e.data.message || "该问题不属于排查范围。" });
       break;
     case "turn_limit":
+      running.value = false;
       turnLimitReached.value = true;
-      messages.value.push({ role: "assistant", text: e.data.message });
+      pushMsg({ role: "assistant", text: e.data.message });
       break;
     case "done":
       flushStream();
       refreshRun();
       break;
     case "error":
-      flushStream();
-      messages.value.push({ role: "assistant", text: `> ❌ ${e.data.message}` });
+      running.value = false;
+      pushMsg({ role: "assistant", text: `> ❌ ${e.data.message}` });
       break;
   }
   scrollBottom();
@@ -284,14 +308,19 @@ function handleEvent(e: any) {
 
 function flushStream() {
   const text = streamText.value.trim();
-  if (text) messages.value.push({ role: "assistant", text });
-  streamText.value = "";
-  thinking.value = false;
-  if (toolTimer) {
-    clearInterval(toolTimer);
-    toolTimer = null;
+  const thinking = thinkingText.value.trim();
+  if (text) {
+    pushMsg({
+      role: "assistant",
+      text,
+      thinking: thinking || undefined,
+      collapsed: true, // 有结果后思考过程自动折叠
+    });
   }
-  setTimeout(() => (activeTools.value = []), 400);
+  streamText.value = "";
+  streamHtml.value = "";
+  thinkingText.value = "";
+  running.value = false;
 }
 
 async function refreshRun() {
@@ -310,8 +339,12 @@ async function send() {
   if (!text || busy.value) return;
   draft.value = "";
   busy.value = true;
+  running.value = true;
   streamText.value = "";
-  activeTools.value = [];
+  streamHtml.value = "";
+  thinkingText.value = "";
+  // 乐观回显：立即显示用户消息，不等后端建会话/门禁
+  pushMsg({ role: "user", text });
   try {
     if (!run.value) {
       // 首条消息：自动创建会话（后端从文本识别 mode/app/查询值）
@@ -324,9 +357,9 @@ async function send() {
   } catch (err: any) {
     if (err.status === 429) {
       turnLimitReached.value = true;
-      messages.value.push({ role: "assistant", text: err.message });
+      pushMsg({ role: "assistant", text: err.message });
     } else if (run.value) {
-      messages.value.push({ role: "assistant", text: `> ❌ 发送失败: ${err.message}` });
+      pushMsg({ role: "assistant", text: `> ❌ 发送失败: ${err.message}` });
     } else {
       run.value = null;
       alert(`创建排查失败: ${err.message}`);
@@ -736,72 +769,77 @@ onBeforeUnmount(disconnect);
   margin: 12px 0 6px;
 }
 
-.tool-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.tool-chip {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  background: var(--bg-2);
+/* 思考过程块 */
+.thinking-block {
+  margin-bottom: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 5px 10px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.thinking-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-dim);
   font-size: 12px;
+  text-align: left;
 }
 
-.tool-chip.done {
-  border-color: rgba(52, 211, 153, 0.35);
+.thinking-toggle:hover {
+  background: var(--bg-2);
 }
 
-.tool-chip.err {
-  border-color: rgba(242, 84, 91, 0.5);
-}
-
-.tool-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-2);
-}
-
-.tool-chip.done .tool-dot {
-  background: var(--ok);
-}
-
-.tool-chip.err .tool-dot {
-  background: var(--danger);
-}
-
-.tool-name {
-  color: var(--ink);
-}
-
-.tool-time {
-  color: var(--ink-faint);
+.chevron {
+  display: inline-block;
+  transition: transform 0.15s;
   font-size: 11px;
 }
 
-.tool-spin {
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--line-2);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+.chevron.open {
+  transform: rotate(90deg);
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+.thinking-label {
+  letter-spacing: 1px;
 }
 
-.thinking {
+.thinking-state {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.thinking-body {
+  padding: 8px 14px 10px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--ink-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.thinking-body.live {
+  border-top: none;
+  padding: 6px 14px;
+  animation: breathe 2s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.75; }
+  50% { opacity: 1; }
+}
+
+.thinking-hint {
   font-size: 11px;
   color: var(--ink-faint);
   letter-spacing: 1px;

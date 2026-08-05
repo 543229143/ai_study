@@ -87,12 +87,24 @@ async def create_run(req: CreateRunRequest):
         "scope": req.scope,
         "custom_apps": req.custom_apps or [],
     })
-    try:
-        await pi_client.create_session(run["id"], run["env"])
-        run = store.append_timeline(run["id"], "pi_session_ready", "Pi 会话已就绪")
-    except Exception as exc:  # noqa: BLE001
-        run = store.append_timeline(run["id"], "pi_session_error", f"Pi 会话创建失败: {exc}")
+    # Pi 会话懒创建（sidecar 首次 prompt 时自动建），此处后台预热不阻塞返回
+    await _warm_pi_session(run["id"], run["env"])
     return run
+
+
+async def _warm_pi_session(run_id: str, env: str) -> None:
+    """后台预热 pi 会话，失败不影响 run 创建（首次 prompt 时 sidecar 会再兜底）。"""
+    import asyncio
+
+    asyncio.create_task(_warm_pi_session_task(run_id, env))
+
+
+async def _warm_pi_session_task(run_id: str, env: str) -> None:
+    try:
+        await pi_client.create_session(run_id, env)
+        await store.append_timeline(run_id, "pi_session_ready", "Pi 会话已就绪")
+    except Exception as exc:  # noqa: BLE001
+        await store.append_timeline(run_id, "pi_session_warm_failed", f"Pi 会话预热失败（首次消息将自动重试）: {exc}")
 
 
 @router.get("")

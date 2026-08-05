@@ -155,6 +155,30 @@ const TOOLS = [
 // ---------- 会话管理 ----------
 type SessionHandle = Awaited<ReturnType<typeof createAgentSession>>;
 const sessions = new Map<string, SessionHandle>();
+const creating = new Map<string, Promise<SessionHandle>>();
+
+/** 获取会话：内存 → 历史恢复 → 新建；并发去重（同一 run 只创建一个 AgentSession）。 */
+function getOrCreate(runId: string): Promise<SessionHandle> {
+  const existing = sessions.get(runId);
+  if (existing) return Promise.resolve(existing);
+  let p = creating.get(runId);
+  if (!p) {
+    p = (async () => {
+      try {
+        return await resumeSession(runId);
+      } catch {
+        return await createSession(runId);
+      }
+    })()
+      .then((h) => {
+        sessions.set(runId, h);
+        return h;
+      })
+      .finally(() => creating.delete(runId));
+    creating.set(runId, p);
+  }
+  return p;
+}
 
 async function createSession(runId: string) {
   const sessionDir = join(AGENT_DIR, "sessions", `run-${runId}`);
@@ -187,9 +211,7 @@ async function createSession(runId: string) {
 }
 
 async function getSession(runId: string): Promise<SessionHandle> {
-  const h = sessions.get(runId);
-  if (h) return h;
-  return resumeSession(runId);
+  return getOrCreate(runId);
 }
 
 /** 从持久化 JSONL 恢复会话（sidecar 重启后可续聊/读消息）。 */
@@ -257,16 +279,39 @@ function mapEvent(event: any): { type: string; data: any } {
   }
 }
 
-async function forwardEvent(runId: string, ev: { type: string; data: any }) {
+// ---------- 事件批量推送（60ms 合并一次，减少 HTTP 请求与卡顿） ----------
+const eventQueues = new Map<string, any[]>();
+const eventTimers = new Map<string, ReturnType<typeof setInterval>>();
+
+function forwardEvent(runId: string, ev: { type: string; data: any }) {
   if (ev.type === "ignored") return;
+  let q = eventQueues.get(runId);
+  if (!q) {
+    q = [];
+    eventQueues.set(runId, q);
+  }
+  q.push(ev);
+  if (!eventTimers.has(runId)) {
+    const timer = setInterval(() => flushEvents(runId), 60);
+    eventTimers.set(runId, timer);
+  }
+}
+
+async function flushEvents(runId: string) {
+  const q = eventQueues.get(runId) ?? [];
+  if (q.length === 0) return;
+  eventQueues.set(runId, []);
   try {
     await fetch(`${BACKEND_URL}/events/${runId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-tool-token": TOOL_TOKEN },
-      body: JSON.stringify(ev),
+      body: JSON.stringify({ events: q }),
     });
   } catch (err) {
-    console.error("[forwardEvent]", runId, ev.type, err);
+    // 失败时把事件放回队列尾部，避免丢失
+    const cur = eventQueues.get(runId) ?? [];
+    eventQueues.set(runId, [...cur, ...q]);
+    console.error("[forwardEvent]", runId, err);
   }
 }
 
@@ -279,7 +324,7 @@ function summarizeMessages(session: SessionHandle, runId: string): any[] {
       msgs.push({ role: "user", text });
     } else if (m.role === "assistant") {
       const text = extractText(m);
-      if (text) msgs.push({ role: "assistant", text });
+      if (text) msgs.push({ role: "assistant", text, thinking: extractThinking(m) || undefined });
     }
   }
   if (msgs.length > 0) return msgs;
@@ -298,7 +343,9 @@ function parseSessionFile(path: string): any[] {
       const m = entry.message ?? {};
       const text = extractText(m);
       if (m.role === "user") msgs.push({ role: "user", text });
-      else if (m.role === "assistant" && text) msgs.push({ role: "assistant", text });
+      else if (m.role === "assistant" && text) {
+        msgs.push({ role: "assistant", text, thinking: extractThinking(m) || undefined });
+      }
     } catch {
       /* 跳过损坏行 */
     }
@@ -318,6 +365,15 @@ function extractText(m: any): string {
   return m.text ?? "";
 }
 
+function extractThinking(m: any): string {
+  const content = m.content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((c: any) => c?.type === "thinking")
+    .map((c: any) => c.thinking ?? "")
+    .join("\n");
+}
+
 // ---------- HTTP 服务 ----------
 Bun.serve({
   port: PORT,
@@ -328,7 +384,7 @@ Bun.serve({
     if (req.method === "POST" && parts[0] === "sessions" && parts.length === 2) {
       const runId = parts[1];
       try {
-        await createSession(runId);
+        await getOrCreate(runId);
         return Response.json({ ok: true, run_id: runId });
       } catch (err) {
         return Response.json({ ok: false, error: String(err) }, { status: 500 });
