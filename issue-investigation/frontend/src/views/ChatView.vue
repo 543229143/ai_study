@@ -531,6 +531,11 @@ async function handleEvent(e: any) {
       if (aborted.value) break;
       queueDelta(e.data.text, "");
       break;
+    case "message_end":
+      // 每条中间消息结束后插入换行分隔（流式展示时各过程消息分行，避免连成一段）
+      if (aborted.value) break;
+      queueDelta("\n\n", "");
+      break;
     case "thinking_delta":
       queueDelta("", e.data.text);
       break;
