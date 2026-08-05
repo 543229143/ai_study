@@ -100,28 +100,26 @@
                   </span>
                 </button>
                 <div v-if="!m.collapsed" class="details-body">
-                  <div class="details-columns">
-                    <div v-if="m.intermediate?.length" class="details-col">
-                      <div class="details-sec-title mono">中间过程</div>
-                      <div v-for="(it, j) in m.intermediate" :key="j" class="details-text">{{ it }}</div>
-                    </div>
-                    <div v-if="m.tool_calls?.length" class="details-col">
-                      <div class="details-sec-title mono">工具调用</div>
-                      <div v-for="(tc, j) in m.tool_calls" :key="j" class="tool-call">
-                        <button class="tool-call-head" @click="tc.open = !tc.open">
-                          <span class="chevron" :class="{ open: tc.open }">▸</span>
-                          <span class="tool-call-name mono" :class="{ err: tc.error }">{{ tc.name }}</span>
-                          <span v-if="tc.error" class="tool-call-err mono">ERROR</span>
-                        </button>
-                        <div v-if="tc.open" class="tool-call-body">
-                          <div class="tool-call-part" v-if="tc.args && tc.args !== '{}'">
-                            <span class="mono tool-call-label">args</span>
-                            <pre class="tool-call-pre">{{ tc.args }}</pre>
-                          </div>
-                          <div class="tool-call-part" v-if="tc.result">
-                            <span class="mono tool-call-label">result</span>
-                            <pre class="tool-call-pre">{{ tc.result }}</pre>
-                          </div>
+                  <div v-if="m.intermediate?.length" class="details-section">
+                    <div class="details-sec-title mono">中间过程</div>
+                    <div v-for="(it, j) in m.intermediate" :key="j" class="details-text">{{ it }}</div>
+                  </div>
+                  <div v-if="m.tool_calls?.length" class="details-section">
+                    <div class="details-sec-title mono">工具调用</div>
+                    <div v-for="(tc, j) in m.tool_calls" :key="j" class="tool-call">
+                      <button class="tool-call-head" @click="tc.open = !tc.open">
+                        <span class="chevron" :class="{ open: tc.open }">▸</span>
+                        <span class="tool-call-name mono" :class="{ err: tc.error }">{{ tc.name }}</span>
+                        <span v-if="tc.error" class="tool-call-err mono">ERROR</span>
+                      </button>
+                      <div v-if="tc.open" class="tool-call-body">
+                        <div class="tool-call-part" v-if="tc.args && tc.args !== '{}'">
+                          <span class="mono tool-call-label">args</span>
+                          <pre class="tool-call-pre">{{ tc.args }}</pre>
+                        </div>
+                        <div class="tool-call-part" v-if="tc.result">
+                          <span class="mono tool-call-label">result</span>
+                          <pre class="tool-call-pre">{{ tc.result }}</pre>
                         </div>
                       </div>
                     </div>
@@ -1035,20 +1033,9 @@ onBeforeUnmount(disconnect);
   border-radius: 3px;
 }
 
-/* 中间过程 与 工具调用 并列双列 */
-.details-columns {
-  display: flex;
-  gap: 18px;
-  align-items: flex-start;
-}
-
-.details-col {
-  flex: 1;
-  min-width: 0;
-}
-
+/* 中间过程 与 工具调用 上下排列（中间过程在前） */
 .details-section {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
 }
 
 .details-section:last-child {
