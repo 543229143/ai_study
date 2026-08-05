@@ -66,10 +66,10 @@ async function callTool(runId: string, name: string, params: Record<string, unkn
   return resp.json();
 }
 
-function toolResult(name: string, result: unknown) {
+function toolResult(name: string, result: unknown, maxLen = 24000) {
   const text = JSON.stringify(result, null, 2);
   return {
-    content: [{ type: "text", text: text.length > 24000 ? text.slice(0, 24000) + "\n...(截断)" : text }],
+    content: [{ type: "text", text: text.length > maxLen ? text.slice(0, maxLen) + "\n...(截断)" : text }],
     details: { tool: name },
   };
 }
@@ -157,10 +157,10 @@ function buildTools(runId: string) {
     description: "读取当前 run 的中间产物全文（artifacts/ 下相对路径）。当工具返回的采样/摘要不足以判断（如日志采样被截断、需要看完整日志/完整 SQL 结果/完整报告）时使用。",
     parameters: Type.Object({
       path: str("artifacts/ 下相对路径，如 collect_logs-001/logs.json、db_query-001/database.json、run_investigation-001/investigation-report.md"),
-      max_chars: Type.Optional(Type.Number({ description: "读取字符数上限（默认 20000，可加大到 50000 或配合 offset 分段读）" })),
+      max_chars: Type.Optional(Type.Number({ description: "读取字符数上限（默认 20000，最大 60000，配合 offset 按字符分段读）" })),
       offset: Type.Optional(Type.Number({ description: "起始偏移（配合 max_chars 分段读大文件）" })),
     }),
-    execute: async (_id, params) => toolResult("read_artifact", await callTool(runId, "read_artifact", params)),
+    execute: async (_id, params) => toolResult("read_artifact", await callTool(runId, "read_artifact", params), 60000),
   }),
   ];
 }
@@ -209,7 +209,7 @@ async function createSession(runId: string) {
     modelRuntime,
     customTools: buildTools(runId),
     noTools: "builtin",
-    tools: ["collect_logs", "scan_code", "nacos_query", "db_query", "run_investigation"],
+    tools: ["collect_logs", "scan_code", "nacos_query", "db_query", "run_investigation", "read_artifact"],
     resourceLoader: loader,
     sessionManager,
   });
@@ -249,7 +249,7 @@ async function resumeSession(runId: string): Promise<SessionHandle> {
     modelRuntime,
     customTools: buildTools(runId),
     noTools: "builtin",
-    tools: ["collect_logs", "scan_code", "nacos_query", "db_query", "run_investigation"],
+    tools: ["collect_logs", "scan_code", "nacos_query", "db_query", "run_investigation", "read_artifact"],
     resourceLoader: loader,
     sessionManager: SessionManager.open(files[0], sessionDir),
   });

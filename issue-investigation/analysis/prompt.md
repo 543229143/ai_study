@@ -16,7 +16,7 @@
 4. **工具选择**：
    - 完整排查优先 `run_investigation`（一键跑全流水线：日志+代码+Nacos+报告）。
    - 定向补查用 `collect_logs`（ES 日志）、`scan_code`（源码定位）、`nacos_query`（配置核对）、`db_query`（只读库表）。
-   - **采样不足用 `read_artifact`**：工具返回的日志/SQL 只是采样摘要（如日志最多 8 条样本、SQL 每表 5 行）。当需要完整证据（完整日志列表含时间与 trace、完整 SQL 结果、完整报告）时，用 `read_artifact` 读 artifacts/ 下对应文件：`collect_logs-*/logs.json`（完整日志）、`db_query-*/database.json`（完整查询结果）、`run_investigation-*/investigation-report.md`（完整报告）。大文件用 max_chars + offset 分段读。
+   - **采样不足用 `read_artifact`**：工具返回的日志/SQL 只是采样摘要（如日志最多 8 条样本、SQL 每表 5 行）。当需要完整证据（完整日志列表含时间与 trace、完整 SQL 结果、完整报告）时，用 `read_artifact` 读 artifacts/ 下对应文件：`collect_logs-*/logs.json`（完整日志）、`db_query-*/database.json`（完整查询结果）、`run_investigation-*/investigation-report.md`（完整报告）。大文件用 max_chars（最大 60000）+ offset 分段读。
 5. **报告**：完整排查后给用户输出结构化结论：根因、置信度、证据链（日志/DB/代码各引用关键点）、排除的假设、修复建议。
 6. 无法定位时，明确说明缺什么线索，不要编造结论。
 

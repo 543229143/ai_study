@@ -222,7 +222,7 @@ def db_query(run_id: str, seq: int, params: dict) -> dict:
 
 
 def read_artifact(run_id: str, seq: int, params: dict) -> dict:
-    """读取当前 run 的中间产物（只读，限 artifacts/ 目录内）。params: path(相对路径), max_chars, offset"""
+    """读取当前 run 的中间产物（只读，限 artifacts/ 目录内）。params: path(相对路径), max_chars, offset（均按字符）"""
     _ensure_kernel()
     run_dir = config.RUNS_DIR / run_id
     artifacts_dir = run_dir / "artifacts"
@@ -241,17 +241,19 @@ def read_artifact(run_id: str, seq: int, params: dict) -> dict:
         return {"error": f"文件不存在: {path}"}
 
     size = target.stat().st_size
-    max_chars = int(params.get("max_chars") or 20000)
-    offset = int(params.get("offset") or 0)
+    max_chars = max(1, int(params.get("max_chars") or 20000))
+    offset = max(0, int(params.get("offset") or 0))
+    # 字符语义：读全量后按字符切片（避免按字节 seek 切坏多字节中文）
     with open(target, "r", encoding="utf-8", errors="replace") as f:
-        f.seek(offset)
-        text = f.read(max_chars)
+        full = f.read()
+    text = full[offset : offset + max_chars]
     return {
         "path": path,
         "file_size": size,
         "offset": offset,
         "returned_chars": len(text),
-        "truncated": offset + len(text) < size,
+        "total_chars": len(full),
+        "truncated": offset + len(text) < len(full),
         "content": text,
     }
 
