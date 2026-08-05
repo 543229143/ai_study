@@ -70,7 +70,7 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
 
     def _sample(es: list) -> list:
         out = []
-        for e in es[:8]:
+        for e in es[:15]:
             msg = str(e.get("message") or e.get("log") or e.get("msg") or "")[:300]
             if not msg.strip():
                 continue
@@ -80,6 +80,13 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
                 "message": msg,
             })
         return out
+
+    ts_list = sorted(str(e.get("@timestamp") or e.get("timestamp") or "") for e in entries if e.get("@timestamp") or e.get("timestamp"))
+    time_coverage = {
+        "earliest": ts_list[0] if ts_list else None,
+        "latest": ts_list[-1] if ts_list else None,
+        "entries": len(entries),
+    }
 
     summary = {
         "env": env,
@@ -94,6 +101,7 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
         },
         "sample_entries": _sample(entries),
         "sample_by_app": {a: _sample(b.get("entries") or []) for a, b in by_app.items()},
+        "time_coverage": time_coverage,
         "kibana_urls": result.get("kibana_urls") or {},
         "artifact": str(out),
         "cost_seconds": round(time.time() - started, 1),
@@ -210,6 +218,41 @@ def db_query(run_id: str, seq: int, params: dict) -> dict:
         "queries": rows,
         "artifact": str(out),
         "cost_seconds": round(time.time() - started, 1),
+    }
+
+
+def read_artifact(run_id: str, seq: int, params: dict) -> dict:
+    """读取当前 run 的中间产物（只读，限 artifacts/ 目录内）。params: path(相对路径), max_chars, offset"""
+    _ensure_kernel()
+    run_dir = config.RUNS_DIR / run_id
+    artifacts_dir = run_dir / "artifacts"
+    path = str(params.get("path") or "").strip().lstrip("/")
+    if not path:
+        return {"error": "path 必填（artifacts/ 下相对路径，如 collect_logs-001/logs.json）"}
+    if ".." in path.split("/"):
+        return {"error": "禁止路径穿越（..）"}
+
+    target = (artifacts_dir / path).resolve()
+    try:
+        target.relative_to(artifacts_dir.resolve())
+    except ValueError:
+        return {"error": f"路径越界: {path}"}
+    if not target.is_file():
+        return {"error": f"文件不存在: {path}"}
+
+    size = target.stat().st_size
+    max_chars = int(params.get("max_chars") or 20000)
+    offset = int(params.get("offset") or 0)
+    with open(target, "r", encoding="utf-8", errors="replace") as f:
+        f.seek(offset)
+        text = f.read(max_chars)
+    return {
+        "path": path,
+        "file_size": size,
+        "offset": offset,
+        "returned_chars": len(text),
+        "truncated": offset + len(text) < size,
+        "content": text,
     }
 
 

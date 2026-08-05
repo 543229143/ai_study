@@ -151,6 +151,17 @@ function buildTools(runId: string) {
     }),
     execute: async (_id, params) => toolResult("run_investigation", await callTool(runId, "run_investigation", params)),
   }),
+  defineTool({
+    name: "read_artifact",
+    label: "读取产物",
+    description: "读取当前 run 的中间产物全文（artifacts/ 下相对路径）。当工具返回的采样/摘要不足以判断（如日志采样被截断、需要看完整日志/完整 SQL 结果/完整报告）时使用。",
+    parameters: Type.Object({
+      path: str("artifacts/ 下相对路径，如 collect_logs-001/logs.json、db_query-001/database.json、run_investigation-001/investigation-report.md"),
+      max_chars: Type.Optional(Type.Number({ description: "读取字符数上限（默认 20000，可加大到 50000 或配合 offset 分段读）" })),
+      offset: Type.Optional(Type.Number({ description: "起始偏移（配合 max_chars 分段读大文件）" })),
+    }),
+    execute: async (_id, params) => toolResult("read_artifact", await callTool(runId, "read_artifact", params)),
+  }),
   ];
 }
 
