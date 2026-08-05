@@ -44,7 +44,7 @@ trap cleanup EXIT
 # Ctrl+C / kill 时立即退出（不等待子进程），再由 EXIT 陷阱统一清理
 trap 'exit 130' INT TERM
 
-(cd "$ROOT/backend" && exec .venv/bin/uvicorn app.main:app --port 8600) & P1=$!
+(cd "$ROOT/backend" && exec .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8600) & P1=$!
 (cd "$ROOT/analysis" && exec bun run src/index.ts) & P2=$!
 (cd "$ROOT/frontend" && exec npm run dev -- --port 5178) & P3=$!
 
