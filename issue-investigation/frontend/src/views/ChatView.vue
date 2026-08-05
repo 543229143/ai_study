@@ -86,7 +86,6 @@
           <template v-else>
             <div class="msg-avatar">AI</div>
             <div class="msg-content">
-              <div class="msg-head mono" v-if="m.model">{{ m.model }}</div>
               <div class="msg-text" v-html="m.html || renderMd(m.text)"></div>
 
               <!-- 处理详情（pi-web 风格，默认折叠，不含思考过程） -->
@@ -127,15 +126,16 @@
                 </div>
               </div>
 
-              <!-- usage + 成本 + 时间脚注 -->
-              <div class="msg-foot mono" v-if="m.usage || m.ts">
+              <!-- 模型 + usage + 成本 + 时间脚注 -->
+              <div class="msg-foot mono" v-if="m.model || m.usage || m.ts">
+                <template v-if="m.model">{{ m.model }}</template>
                 <template v-if="m.usage">
-                  {{ m.usage.input.toLocaleString() }} in ·
+                  <span class="foot-sep"> · </span>{{ m.usage.input.toLocaleString() }} in ·
                   {{ m.usage.output.toLocaleString() }} out ·
                   {{ m.usage.cacheRead.toLocaleString() }} cache R ·
                   {{ fmtCost(m.usage.cost) }}
                 </template>
-                <template v-if="m.ts"> · {{ fmtTime(m.ts) }}</template>
+                <template v-if="m.ts"><span class="foot-sep"> · </span>{{ fmtTime(m.ts) }}</template>
               </div>
             </div>
           </template>
@@ -146,6 +146,8 @@
           <div class="msg-avatar">AI</div>
           <div class="msg-content">
             <div class="gen-stats mono" v-if="running">
+              <span class="gen-model">{{ modelName }}</span>
+              <span class="gen-down">↓</span>
               <span class="gen-tokens">{{ streamTokens.toLocaleString() }}</span>
               <span class="gen-sep">·</span>
               <span class="gen-speed">{{ streamSpeed.toFixed(1) }} t/s</span>
@@ -188,6 +190,7 @@ import {
   createRun,
   getCost,
   getMessages,
+  getModelName,
   getRun,
   listRuns,
   openStream,
@@ -240,6 +243,7 @@ const stopping = ref(false);
 const aborted = ref(false);
 const streamTokens = ref(0);
 const streamSpeed = ref(0);
+const modelName = ref("deepseek-v4-flash");
 const msgBox = ref<HTMLElement | null>(null);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 let turnStartAt = 0;
@@ -263,14 +267,40 @@ function updateSpeed() {
 
 async function copyRunId() {
   if (!run.value) return;
-  try {
-    await navigator.clipboard.writeText(run.value.id);
+  let ok = false;
+  // 安全上下文（https/localhost）用 Clipboard API；http 局域网访问降级 execCommand
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(run.value.id);
+      ok = true;
+    } catch {
+      /* 降级 */
+    }
+  }
+  if (!ok) {
+    try {
+      fallbackCopy(run.value.id);
+      ok = true;
+    } catch {
+      /* 剪贴板不可用时忽略 */
+    }
+  }
+  if (ok) {
     copied.value = true;
     if (copiedTimer) clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => (copied.value = false), 1500);
-  } catch {
-    /* 剪贴板不可用时忽略 */
   }
+}
+
+function fallbackCopy(text: string) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand("copy");
+  document.body.removeChild(ta);
 }
 
 async function stop() {
@@ -467,18 +497,26 @@ function disconnect() {
   ws = null;
 }
 
-/** 重连后/打开会话时从服务端同步消息，补回断线期间丢失的事件。 */
+/** 重连后/打开会话时从服务端同步消息，补回断线期间丢失的事件。
+ *  运行中：丢弃最后一个未完成（无 usage）的 assistant 轮次——半成品由流式块继续展示，
+ *  避免"问一次出现两个回答"。 */
 async function syncFromServer() {
   if (!run.value) return;
   try {
     const msgs = await getMessages(run.value.id);
-    if (msgs.length) {
-      messages.value = msgs.map((m) => ({
-        ...m,
-        html: renderMd(m.text),
-        collapsed: m.role === "assistant",
-      }));
+    if (!msgs.length) return;
+    let list = msgs.map((m) => ({
+      ...m,
+      html: renderMd(m.text),
+      collapsed: m.role === "assistant",
+    }));
+    if (running.value) {
+      const last = list[list.length - 1];
+      if (last.role === "assistant" && !last.usage) {
+        list = list.slice(0, -1);
+      }
     }
+    messages.value = list;
   } catch {
     /* 忽略，等下次重连再同步 */
   }
@@ -617,7 +655,10 @@ async function send() {
   scrollBottom();
 }
 
-onMounted(loadSessions);
+onMounted(async () => {
+  loadSessions();
+  modelName.value = await getModelName();
+});
 onBeforeUnmount(disconnect);
 </script>
 
@@ -993,6 +1034,10 @@ onBeforeUnmount(disconnect);
   letter-spacing: 0.3px;
 }
 
+.foot-sep {
+  color: var(--ink-faint);
+}
+
 /* 用户消息时间 */
 .msg-time {
   margin-top: 5px;
@@ -1241,8 +1286,22 @@ onBeforeUnmount(disconnect);
   color: var(--ink-dim);
 }
 
-.gen-tokens {
+.gen-model {
   color: var(--accent-2);
+}
+
+.gen-down {
+  color: var(--accent);
+  animation: down-bounce 1.2s ease-in-out infinite;
+}
+
+@keyframes down-bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(3px); }
+}
+
+.gen-tokens {
+  color: var(--ink-dim);
 }
 
 .gen-sep {
