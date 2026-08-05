@@ -100,24 +100,29 @@
                   </span>
                 </button>
                 <div v-if="!m.collapsed" class="details-body">
-                  <div v-if="m.intermediate?.length" class="details-section">
-                    <div class="details-sec-title mono">中间过程</div>
-                    <div v-for="(it, j) in m.intermediate" :key="j" class="details-text">{{ it }}</div>
-                  </div>
-                  <div v-if="m.tool_calls?.length" class="details-section">
-                    <div class="details-sec-title mono">工具调用</div>
-                    <div v-for="(tc, j) in m.tool_calls" :key="j" class="tool-call">
-                      <div class="tool-call-head">
-                        <span class="tool-call-name mono" :class="{ err: tc.error }">{{ tc.name }}</span>
-                        <span v-if="tc.error" class="tool-call-err mono">ERROR</span>
-                      </div>
-                      <div class="tool-call-part" v-if="tc.args && tc.args !== '{}'">
-                        <span class="mono tool-call-label">args</span>
-                        <pre class="tool-call-pre">{{ tc.args }}</pre>
-                      </div>
-                      <div class="tool-call-part" v-if="tc.result">
-                        <span class="mono tool-call-label">result</span>
-                        <pre class="tool-call-pre">{{ tc.result }}</pre>
+                  <div class="details-columns">
+                    <div v-if="m.intermediate?.length" class="details-col">
+                      <div class="details-sec-title mono">中间过程</div>
+                      <div v-for="(it, j) in m.intermediate" :key="j" class="details-text">{{ it }}</div>
+                    </div>
+                    <div v-if="m.tool_calls?.length" class="details-col">
+                      <div class="details-sec-title mono">工具调用</div>
+                      <div v-for="(tc, j) in m.tool_calls" :key="j" class="tool-call">
+                        <button class="tool-call-head" @click="tc.open = !tc.open">
+                          <span class="chevron" :class="{ open: tc.open }">▸</span>
+                          <span class="tool-call-name mono" :class="{ err: tc.error }">{{ tc.name }}</span>
+                          <span v-if="tc.error" class="tool-call-err mono">ERROR</span>
+                        </button>
+                        <div v-if="tc.open" class="tool-call-body">
+                          <div class="tool-call-part" v-if="tc.args && tc.args !== '{}'">
+                            <span class="mono tool-call-label">args</span>
+                            <pre class="tool-call-pre">{{ tc.args }}</pre>
+                          </div>
+                          <div class="tool-call-part" v-if="tc.result">
+                            <span class="mono tool-call-label">result</span>
+                            <pre class="tool-call-pre">{{ tc.result }}</pre>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1030,6 +1035,18 @@ onBeforeUnmount(disconnect);
   border-radius: 3px;
 }
 
+/* 中间过程 与 工具调用 并列双列 */
+.details-columns {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.details-col {
+  flex: 1;
+  min-width: 0;
+}
+
 .details-section {
   margin-bottom: 12px;
 }
@@ -1058,29 +1075,18 @@ onBeforeUnmount(disconnect);
   margin-bottom: 0;
 }
 
-.details-block.live .details-text {
-  animation: breathe 2s ease-in-out infinite;
-}
-
-.live-text {
-  font-size: 12px;
-  line-height: 1.7;
-  color: var(--ink-dim);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 @keyframes breathe {
   0%, 100% { opacity: 0.75; }
   50% { opacity: 1; }
 }
 
-/* 工具调用明细 */
+/* 工具调用明细：每个工具可单独点开 */
 .tool-call {
-  margin-bottom: 10px;
+  margin-bottom: 6px;
   border: 1px solid var(--line);
   border-radius: 3px;
   overflow: hidden;
+  background: var(--bg-2);
 }
 
 .tool-call:last-child {
@@ -1091,12 +1097,23 @@ onBeforeUnmount(disconnect);
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 10px;
-  background: var(--bg-2);
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--ink-dim);
+  font-size: 12px;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.tool-call-head:hover {
+  background: var(--bg-3);
 }
 
 .tool-call-name {
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--accent-2);
 }
 
@@ -1112,9 +1129,17 @@ onBeforeUnmount(disconnect);
   border-radius: 3px;
 }
 
+.tool-call-body {
+  border-top: 1px solid var(--line);
+}
+
 .tool-call-part {
   padding: 6px 10px;
   border-top: 1px solid var(--line);
+}
+
+.tool-call-part:first-child {
+  border-top: none;
 }
 
 .tool-call-label {
