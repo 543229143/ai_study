@@ -14,7 +14,6 @@
         @click="go(r.id)"
       >
         <div class="row-main">
-          <span class="env-tag mono" :class="`env-${r.env}`">{{ r.env.toUpperCase() }}</span>
           <span class="row-title">{{ r.title }}</span>
           <span class="mono row-meta">#{{ r.id.slice(9, 17) }} · {{ r.app }}</span>
         </div>
@@ -115,23 +114,6 @@ onMounted(load);
   min-width: 0;
 }
 
-.env-tag {
-  flex: 0 0 auto;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 5px;
-  letter-spacing: 1px;
-}
-
-.env-tag.env-dev {
-  background: rgba(56, 189, 248, 0.14);
-  color: var(--accent-2);
-}
-
-.env-tag.env-sit {
-  background: rgba(240, 160, 48, 0.14);
-  color: var(--warn);
-}
 
 .row-title {
   font-size: 13.5px;

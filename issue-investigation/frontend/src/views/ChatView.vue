@@ -22,7 +22,6 @@
         >
           <div class="si-top">
             <span class="si-title">{{ s.title }}</span>
-            <span class="si-env mono" :class="`env-${s.env}`">{{ s.env.toUpperCase() }}</span>
           </div>
           <div class="si-meta mono">
             {{ fmtTime(s.updated_at) }} · {{ s.message_count }} 轮
@@ -258,7 +257,12 @@ async function openSession(s: Run) {
   env.value = s.env;
   turnLimitReached.value = (s.turn_limit - s.message_count) <= 0;
   const msgs = await getMessages(s.id);
-  messages.value = msgs.map((m) => ({ ...m, html: renderMd(m.text) }));
+  // 加载的历史消息：思考过程默认折叠
+  messages.value = msgs.map((m) => ({
+    ...m,
+    html: renderMd(m.text),
+    collapsed: m.role === "assistant" && !!m.thinking,
+  }));
   connectStream(s.id);
   scrollBottom();
 }
@@ -486,23 +490,6 @@ onBeforeUnmount(disconnect);
   white-space: nowrap;
 }
 
-.si-env {
-  flex: 0 0 auto;
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  letter-spacing: 0.5px;
-}
-
-.si-env.env-dev {
-  background: rgba(56, 189, 248, 0.13);
-  color: var(--accent-2);
-}
-
-.si-env.env-sit {
-  background: rgba(240, 160, 48, 0.13);
-  color: var(--warn);
-}
 
 .si-meta {
   margin-top: 3px;
@@ -595,8 +582,9 @@ onBeforeUnmount(disconnect);
 .env-switch {
   display: flex;
   border: 1px solid var(--line-2);
-  border-radius: 8px;
+  border-radius: 4px;
   overflow: hidden;
+  background: var(--bg);
 }
 
 .env-btn {
@@ -604,21 +592,27 @@ onBeforeUnmount(disconnect);
   background: transparent;
   color: var(--ink-dim);
   font-family: var(--mono);
-  font-size: 12px;
-  padding: 5px 18px;
+  font-size: 11px;
+  padding: 4px 14px;
   cursor: pointer;
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
   transition: all 0.15s;
+}
+
+.env-btn + .env-btn {
+  border-left: 1px solid var(--line-2);
 }
 
 .env-btn.active.env-dev {
   background: rgba(56, 189, 248, 0.16);
   color: var(--accent-2);
+  box-shadow: inset 0 -2px 0 var(--accent-2);
 }
 
 .env-btn.active.env-sit {
   background: rgba(240, 160, 48, 0.16);
   color: var(--warn);
+  box-shadow: inset 0 -2px 0 var(--warn);
 }
 
 /* 消息区 */
@@ -771,7 +765,7 @@ onBeforeUnmount(disconnect);
   margin: 12px 0 6px;
 }
 
-/* 思考过程块：轻量折叠，无框感 */
+/* 思考过程块：终端方格风格折叠头 */
 .thinking-block {
   margin-bottom: 6px;
 }
@@ -779,26 +773,27 @@ onBeforeUnmount(disconnect);
 .thinking-toggle {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 6px;
-  background: transparent;
-  border: none;
-  border-radius: 5px;
+  gap: 8px;
+  padding: 3px 10px 3px 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
   cursor: pointer;
   color: var(--ink-faint);
-  font-size: 11.5px;
+  font-size: 11px;
   transition: all 0.15s;
 }
 
 .thinking-toggle:hover {
+  border-color: var(--line-2);
   color: var(--ink-dim);
-  background: rgba(120, 150, 190, 0.08);
+  background: var(--bg-2);
 }
 
 .chevron {
   display: inline-block;
   transition: transform 0.2s ease;
-  font-size: 10px;
+  font-size: 9px;
   color: var(--ink-faint);
 }
 
@@ -808,21 +803,24 @@ onBeforeUnmount(disconnect);
 }
 
 .thinking-label {
-  letter-spacing: 1px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
 }
 
 .thinking-state {
   font-size: 10px;
+  padding-left: 6px;
+  border-left: 1px solid var(--line);
   color: var(--ink-faint);
-  opacity: 0.8;
 }
 
 .thinking-body {
-  margin-top: 4px;
-  padding: 10px 14px;
+  margin-top: 6px;
+  padding: 12px 14px;
+  background: rgba(11, 15, 20, 0.6);
+  border: 1px solid var(--line);
   border-left: 2px solid var(--line-2);
-  border-radius: 0 6px 6px 0;
-  background: rgba(120, 150, 190, 0.05);
+  border-radius: 3px;
   font-size: 12px;
   line-height: 1.7;
   color: var(--ink-dim);
@@ -833,7 +831,6 @@ onBeforeUnmount(disconnect);
 }
 
 .thinking-body.live {
-  margin-top: 4px;
   animation: breathe 2s ease-in-out infinite;
 }
 

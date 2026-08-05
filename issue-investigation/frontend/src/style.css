@@ -66,6 +66,35 @@ body::before {
   box-shadow: 0 0 0 1px var(--accent) inset !important;
 }
 
+/* 全局滚动条：深色主题统一（输入框/思考块/消息区/侧边栏） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-2) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--line-2);
+  border-radius: 4px;
+  border: 2px solid var(--bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3a4c66;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* 等宽数字 */
 .mono {
   font-family: var(--mono);
