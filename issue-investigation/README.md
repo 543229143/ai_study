@@ -19,31 +19,34 @@
 ## 启动（本机三进程）
 
 ```bash
-# 1. 后端（首次自动装依赖）
+# 1. 后端（首次自动装依赖；--host 0.0.0.0 支持局域网共享访问）
 cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/uvicorn app.main:app --port 8600
+.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8600
 
 # 2. Pi 分析服务（复用 ~/.pi/agent 的 LLM 配置，自动拷贝到 data/pi-agent/）
 cd analysis
 bun install
 bun run src/index.ts
 
-# 3. 前端
+# 3. 前端（WS 直连后端，见 frontend/.env.development 的 VITE_WS_BASE）
 cd frontend
 npm install
 npm run dev          # http://localhost:5178
 ```
 
-或一键：`./dev.sh`
+或一键：`./dev.sh`（启动前自动清理三端口残留进程）。
 
 ## 功能
 
-- 对话式排查：用户提问（traceId/告警/数据核对）→ Agent 自主调用工具（collect_logs / scan_code / nacos_query / db_query / run_investigation）→ 流式输出结论
-- 多轮追问：同一会话延续上下文，可中途切换 dev/sit
-- 单会话 10 轮上限（门禁拦截不计轮次）
-- 意图门禁：只做问题排查，无关提问拦截引导
-- 历史归档：`data/runs/{run_id}/` 完整保留对话（session.jsonl）、报告、证据、中间产物；历史页只读回看
+- **对话式排查**：单输入框提问（traceId/告警/业务单号均可）→ Agent 自主调用工具（collect_logs / scan_code / nacos_query / db_query / run_investigation / read_artifact）→ 流式输出结论
+- **环境/主应用自动识别**：文本显式提到 sit/dev 时自动切换环境；应用/模式/业务键从描述自动解析，用户无需感知内部概念
+- **pi-web 风格界面**：左侧会话栏（按环境过滤）+ 聊天区 + 单输入框；AI 回答=最终答案+折叠的"处理详情"（中间过程+工具调用，逐个可展开）；脚注显示模型/usage/成本/时间
+- **多轮追问**：同一会话延续上下文，可中途切换 dev/sit
+- **单会话 10 轮上限**（门禁拦截与自动续跑不计轮次）
+- **意图门禁**：只做问题排查，无关提问拦截并持久化引导语（刷新后仍可见）
+- **中断续跑**：服务重启中断的排查，重新打开时显示"继续排查"横幅，点击后自动续跑
+- **历史归档**：`data/runs/{run_id}/` 完整保留对话、报告、证据、中间产物（不清理、不覆盖）；`artifacts/{工具}-{序号}/` 每步产物独立
 
 ## 配置（环境变量）
 
@@ -54,6 +57,9 @@ npm run dev          # http://localhost:5178
 | `INV_PI_BASE_URL` | `http://127.0.0.1:8700` | Pi sidecar 地址 |
 | `INV_PI_TOOL_TOKEN` | `local-dev-token` | 工具端点鉴权 |
 | `INV_LLM_MODEL` | `deepseek-v4-flash` | 门禁/分析模型 |
+| `INV_IDLE_TIMEOUT_MS` | `180000` | 排查无事件看护超时（自动停止防卡死） |
+| `INV_BACKEND_URL`（analysis 侧） | `http://127.0.0.1:8600` | sidecar 回调后端地址 |
+| `VITE_WS_BASE`（frontend/.env.development） | `127.0.0.1:8600` | 浏览器 WS 直连后端地址（局域网共享时改本机 IP） |
 
 LLM key 自动读 `~/.pi/agent/auth.json`（provider: opencode-go），无需配置。
 
@@ -81,7 +87,7 @@ Pi（`@earendil-works/pi-coding-agent`）周更频繁，升级前必须按此流
    [analysis] pi-coding-agent@<新版本> 事件协议 v1.0   ← 版本留痕
 5. 验证四件事：
    ① 新会话：发消息 → 工具调用正常、流式事件到达
-   ② 旧会话：打开历史 run → 能恢复对话、思考内容能读回
+   ② 旧会话：打开历史 run → 能恢复对话与"处理详情"（思考内容存于会话数据，仅 UI 不展示）
    ③ 事件字段：对照 EVENT_PROTOCOL 常量表，若 pi 事件名变了更新 mapEvent
    ④ LLM 通道：opencode-go + deepseek 推理格式正常
 6. 浏览器全流程走一遍 → 通过则提交（package.json + bun.lock）
