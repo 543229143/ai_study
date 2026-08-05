@@ -14,8 +14,8 @@ from .models import CreateRunRequest, SendMessageRequest
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 _REJECT_MESSAGE = (
-    "我只能帮你排查 dev/sit 环境的日志报错、落库异常、配置与数据问题。"
-    "可以告诉我：环境（dev/sit）、主应用（lcs/goa/ams/lps）、traceId 或报错现象。"
+    "我只能帮你排查日志报错、落库异常、配置与数据问题。"
+    "可以这样告诉我：粘贴 32 位 traceId、报错/异常信息，或业务单号（借据号/订单号/申请号），越具体越好。"
 )
 _TURN_LIMIT_MESSAGE = "本轮排查已达 10 轮沟通上限，请新建会话继续排查。"
 
