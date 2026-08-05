@@ -69,7 +69,7 @@ async function callTool(runId: string, name: string, params: Record<string, unkn
 function toolResult(name: string, result: unknown) {
   const text = JSON.stringify(result, null, 2);
   return {
-    content: [{ type: "text", text: text.length > 16000 ? text.slice(0, 16000) + "\n...(截断)" : text }],
+    content: [{ type: "text", text: text.length > 24000 ? text.slice(0, 24000) + "\n...(截断)" : text }],
     details: { tool: name },
   };
 }
@@ -77,11 +77,12 @@ function toolResult(name: string, result: unknown) {
 const str = (d: string) => Type.String({ description: d });
 const opt = (d: string) => Type.Optional(Type.String({ description: d }));
 
-const TOOLS = [
+function buildTools(runId: string) {
+  return [
   defineTool({
     name: "collect_logs",
     label: "采集日志",
-    description: "采集 dev/sit 环境 ES 日志（按 traceId/告警/业务键）。结果含各应用命中数与错误数。",
+    description: "采集 dev/sit 环境 ES 日志（按 traceId/告警/业务键）。结果含各应用命中数与错误数，以及日志原文采样。",
     parameters: Type.Object({
       env: str("环境：dev 或 sit"),
       app: str("主应用：lcs/goa/ams/lps"),
@@ -91,7 +92,7 @@ const TOOLS = [
       biz_key: opt("业务键（mode=biz_key 时）"),
       apps: Type.Optional(Type.Array(Type.String(), { description: "涉及应用列表（默认仅主应用）" })),
     }),
-    execute: async (_id, params, runId) => toolResult("collect_logs", await callTool(runId, "collect_logs", params)),
+    execute: async (_id, params) => toolResult("collect_logs", await callTool(runId, "collect_logs", params)),
   }),
   defineTool({
     name: "scan_code",
@@ -103,7 +104,7 @@ const TOOLS = [
       keywords: Type.Array(Type.String(), { description: "扫描关键词（类名/方法名/字段）" }),
       log_messages: Type.Optional(Type.Array(Type.String(), { description: "日志片段（可选，作为扫描上下文）" })),
     }),
-    execute: async (_id, params, runId) => toolResult("scan_code", await callTool(runId, "scan_code", params)),
+    execute: async (_id, params) => toolResult("scan_code", await callTool(runId, "scan_code", params)),
   }),
   defineTool({
     name: "nacos_query",
@@ -114,7 +115,7 @@ const TOOLS = [
       app: str("应用：lcs/goa/ams/lps"),
       keys: Type.Array(Type.String(), { description: "要查询的配置 key 列表" }),
     }),
-    execute: async (_id, params, runId) => toolResult("nacos_query", await callTool(runId, "nacos_query", params)),
+    execute: async (_id, params) => toolResult("nacos_query", await callTool(runId, "nacos_query", params)),
   }),
   defineTool({
     name: "db_query",
@@ -133,7 +134,7 @@ const TOOLS = [
         }), { description: "查询列表（≤5 条）" })),
       }),
     }),
-    execute: async (_id, params, runId) => toolResult("db_query", await callTool(runId, "db_query", params)),
+    execute: async (_id, params) => toolResult("db_query", await callTool(runId, "db_query", params)),
   }),
   defineTool({
     name: "run_investigation",
@@ -148,9 +149,10 @@ const TOOLS = [
       biz_key: opt("业务键"),
       scope: Type.Optional(Type.Union([Type.Literal("primary_only"), Type.Literal("all")], { description: "范围：仅主应用 / 四应用广扫" })),
     }),
-    execute: async (_id, params, runId) => toolResult("run_investigation", await callTool(runId, "run_investigation", params)),
+    execute: async (_id, params) => toolResult("run_investigation", await callTool(runId, "run_investigation", params)),
   }),
-];
+  ];
+}
 
 // ---------- 会话管理 ----------
 type SessionHandle = Awaited<ReturnType<typeof createAgentSession>>;
@@ -194,9 +196,9 @@ async function createSession(runId: string) {
     cwd: join(DATA_DIR, "pi-agent"),
     agentDir: AGENT_DIR,
     modelRuntime,
-    customTools: TOOLS,
+    customTools: buildTools(runId),
     noTools: "builtin",
-    tools: TOOLS.map((t) => t.name),
+    tools: ["collect_logs", "scan_code", "nacos_query", "db_query", "run_investigation"],
     resourceLoader: loader,
     sessionManager,
   });
@@ -234,9 +236,9 @@ async function resumeSession(runId: string): Promise<SessionHandle> {
     cwd: join(DATA_DIR, "pi-agent"),
     agentDir: AGENT_DIR,
     modelRuntime,
-    customTools: TOOLS,
+    customTools: buildTools(runId),
     noTools: "builtin",
-    tools: TOOLS.map((t) => t.name),
+    tools: ["collect_logs", "scan_code", "nacos_query", "db_query", "run_investigation"],
     resourceLoader: loader,
     sessionManager: SessionManager.open(files[0], sessionDir),
   });
@@ -446,19 +448,31 @@ function stripUserPrefix(text: string): string {
  * - assistant 轮：最终答案(text) + 处理详情（thinking/intermediate/tool_calls）+ usage + model + 时间戳
  */
 function groupMessages(entries: any[]): any[] {
-  const out: any[] = [];
+  // 第一遍：收集全部 toolResult（结果在 toolCall 之后到达，须先全量收集再回填）
   const toolResults = new Map<string, any>();
+  for (const m of entries) {
+    if (m.role !== "toolResult") continue;
+    for (const c of m.content ?? []) {
+      const r = c?.toolCallResult;
+      if (r?.toolCallId) toolResults.set(r.toolCallId, r);
+      const tid = r?.toolCallId || m.toolCallId;
+      if (tid) {
+        toolResults.set(tid, {
+          toolCallId: tid,
+          output: typeof c === "string" ? c : c?.text ?? r?.output ?? "",
+          isError: !!r?.isError || !!m.isError,
+        });
+      }
+    }
+  }
+
+  // 第二遍：按轮次分组
+  const out: any[] = [];
   let cur: any = null;
 
   for (const m of entries) {
     const role = m.role;
-    if (role === "toolResult") {
-      for (const c of m.content ?? []) {
-        const r = c?.toolCallResult;
-        if (r?.toolCallId) toolResults.set(r.toolCallId, r);
-      }
-      continue;
-    }
+    if (role === "toolResult") continue;
     if (role === "user") {
       out.push({ role: "user", text: stripUserPrefix(extractText(m)), ts: m.timestamp });
       cur = null;

@@ -145,6 +145,11 @@
         <div class="msg assistant" v-if="running || streamText">
           <div class="msg-avatar">AI</div>
           <div class="msg-content">
+            <div class="gen-stats mono" v-if="running">
+              <span class="gen-tokens">{{ streamTokens.toLocaleString() }}</span>
+              <span class="gen-sep">·</span>
+              <span class="gen-speed">{{ streamSpeed.toFixed(1) }} t/s</span>
+            </div>
             <div class="msg-text" v-if="streamHtml" v-html="streamHtml"></div>
             <div class="thinking-hint mono" v-if="running && !streamText">推理中…</div>
           </div>
@@ -233,8 +238,28 @@ const cost = ref<number | null>(null);
 const copied = ref(false);
 const stopping = ref(false);
 const aborted = ref(false);
+const streamTokens = ref(0);
+const streamSpeed = ref(0);
 const msgBox = ref<HTMLElement | null>(null);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
+let turnStartAt = 0;
+
+/** 估算 token 数：中文≈1 token/字，英文≈1 token/4 字符。 */
+function estimateTokens(text: string): number {
+  let ascii = 0;
+  let other = 0;
+  for (const ch of text) {
+    if (ch.charCodeAt(0) < 128) ascii++;
+    else other++;
+  }
+  return other + Math.round(ascii / 4);
+}
+
+/** 动态刷新生成速度（每帧随增量更新）。 */
+function updateSpeed() {
+  const elapsed = (Date.now() - turnStartAt) / 1000;
+  streamSpeed.value = elapsed > 0 ? streamTokens.value / elapsed : 0;
+}
 
 async function copyRunId() {
   if (!run.value) return;
@@ -293,6 +318,8 @@ function queueDelta(text: string, thinking: string) {
   if (!rafId) {
     rafId = requestAnimationFrame(() => {
       rafId = 0;
+      const tokText = deltaBuf.text;
+      const tokThink = deltaBuf.thinking;
       if (deltaBuf.text) {
         streamText.value += deltaBuf.text;
         deltaBuf.text = "";
@@ -301,6 +328,10 @@ function queueDelta(text: string, thinking: string) {
       if (deltaBuf.thinking) {
         thinkingText.value += deltaBuf.thinking;
         deltaBuf.thinking = "";
+      }
+      if (tokText || tokThink) {
+        streamTokens.value += estimateTokens(tokText + tokThink);
+        updateSpeed();
       }
     });
   }
@@ -371,6 +402,8 @@ function newSession() {
   running.value = false;
   turnLimitReached.value = false;
   cost.value = null;
+  streamTokens.value = 0;
+  streamSpeed.value = 0;
   draft.value = "";
 }
 
@@ -380,13 +413,7 @@ async function openSession(s: Run) {
   run.value = s;
   env.value = s.env;
   turnLimitReached.value = (s.turn_limit - s.message_count) <= 0;
-  const msgs = await getMessages(s.id);
-  // 服务端按轮次分组：最终答案 + 处理详情（默认折叠）
-  messages.value = msgs.map((m) => ({
-    ...m,
-    html: renderMd(m.text),
-    collapsed: m.role === "assistant",
-  }));
+  await syncFromServer();
   // 历史中被用户停止的排查：补一条停止标记
   if ((s.timeline || []).some((t) => t.event === "aborted")) {
     messages.value.push({
@@ -400,17 +427,61 @@ async function openSession(s: Run) {
   scrollBottom();
 }
 
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempts = 0;
+
 function connectStream(id: string) {
   ws = openStream(id);
-  ws.onopen = () => (wsOk.value = true);
-  ws.onclose = () => (wsOk.value = false);
-  ws.onerror = () => (wsOk.value = false);
+  ws.onopen = () => {
+    wsOk.value = true;
+    reconnectAttempts = 0;
+  };
+  ws.onclose = () => {
+    wsOk.value = false;
+    scheduleReconnect();
+  };
+  ws.onerror = () => {
+    wsOk.value = false;
+  };
   ws.onmessage = (ev) => handleEvent(JSON.parse(ev.data));
 }
 
+function scheduleReconnect() {
+  if (!run.value || reconnectTimer) return;
+  const delay = Math.min(1000 * 2 ** reconnectAttempts, 15000);
+  reconnectAttempts++;
+  reconnectTimer = setTimeout(async () => {
+    reconnectTimer = null;
+    if (!run.value) return;
+    connectStream(run.value.id);
+    await syncFromServer();
+  }, delay);
+}
+
 function disconnect() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   ws?.close();
   ws = null;
+}
+
+/** 重连后/打开会话时从服务端同步消息，补回断线期间丢失的事件。 */
+async function syncFromServer() {
+  if (!run.value) return;
+  try {
+    const msgs = await getMessages(run.value.id);
+    if (msgs.length) {
+      messages.value = msgs.map((m) => ({
+        ...m,
+        html: renderMd(m.text),
+        collapsed: m.role === "assistant",
+      }));
+    }
+  } catch {
+    /* 忽略，等下次重连再同步 */
+  }
 }
 
 async function handleEvent(e: any) {
@@ -462,19 +533,22 @@ function flushStream() {
   streamHtml.value = "";
   thinkingText.value = "";
   running.value = false;
+  streamTokens.value = 0;
+  streamSpeed.value = 0;
   void text;
   void thinking;
 }
 
 /** 回答完成后从服务端拉取分组消息，替换整条列表（最终答案 + 折叠处理详情 + usage）。
- *  done 事件与会话落盘存在竞态，拉取不到新轮次时最多重试 3 次。 */
+ *  done 事件早于会话落盘：重试直到拉到的最后一轮 assistant 消息带 usage（完成标志）。 */
 async function refreshTurn() {
   if (!run.value) return;
   const prevCount = messages.value.length;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     try {
       const msgs = await getMessages(run.value.id);
-      if (msgs.length > prevCount) {
+      const lastAi = [...msgs].reverse().find((m) => m.role === "assistant");
+      if (msgs.length > prevCount && lastAi?.usage) {
         messages.value = msgs.map((m) => ({
           ...m,
           html: renderMd(m.text),
@@ -485,7 +559,7 @@ async function refreshTurn() {
     } catch {
       /* 继续重试 */
     }
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 1000));
   }
 }
 
@@ -504,12 +578,18 @@ async function send() {
   const text = draft.value.trim();
   if (!text || busy.value) return;
   draft.value = "";
+  // 文本中显式提到环境时，自动切换顶栏开关（用户明确表达优先于开关当前值）
+  if (/\bsit\b/i.test(text)) env.value = "sit";
+  else if (/\bdev\b/i.test(text)) env.value = "dev";
   busy.value = true;
   running.value = true;
   aborted.value = false;
   streamText.value = "";
   streamHtml.value = "";
   thinkingText.value = "";
+  streamTokens.value = 0;
+  streamSpeed.value = 0;
+  turnStartAt = Date.now();
   // 乐观回显：立即显示用户消息，不等后端建会话/门禁
   pushMsg({ role: "user", text });
   try {
@@ -1146,6 +1226,31 @@ onBeforeUnmount(disconnect);
   max-height: 220px;
   overflow-y: auto;
   font-family: var(--mono);
+}
+
+.gen-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--bg);
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.gen-tokens {
+  color: var(--accent-2);
+}
+
+.gen-sep {
+  color: var(--ink-faint);
+}
+
+.gen-speed {
+  color: var(--accent);
 }
 
 .thinking-hint {

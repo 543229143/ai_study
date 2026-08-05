@@ -87,6 +87,11 @@ export function listArtifacts(id: string): Promise<Array<{ name: string; files: 
 }
 
 export function openStream(id: string): WebSocket {
+  // 开发环境直连后端（VITE_WS_BASE），绕开 vite 代理的 WS 不稳定；生产走同源 ingress
+  const wsBase = import.meta.env.VITE_WS_BASE as string | undefined;
+  if (wsBase) {
+    return new WebSocket(`${wsBase.startsWith("ws") ? wsBase : `ws://${wsBase}`}/runs/${id}/stream`);
+  }
   const proto = location.protocol === "https:" ? "wss" : "ws";
   return new WebSocket(`${proto}://${location.host}/runs/${id}/stream`);
 }

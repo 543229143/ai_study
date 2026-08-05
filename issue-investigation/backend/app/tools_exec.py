@@ -67,6 +67,20 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
     )
     entries = result.get("entries") or []
     by_app = result.get("by_app") or {}
+
+    def _sample(es: list) -> list:
+        out = []
+        for e in es[:8]:
+            msg = str(e.get("message") or e.get("log") or e.get("msg") or "")[:300]
+            if not msg.strip():
+                continue
+            out.append({
+                "ts": str(e.get("@timestamp") or e.get("timestamp") or "")[:23],
+                "level": str(e.get("level") or e.get("log_level") or "")[:8],
+                "message": msg,
+            })
+        return out
+
     summary = {
         "env": env,
         "apps": apps,
@@ -78,6 +92,8 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
             }
             for a, b in by_app.items()
         },
+        "sample_entries": _sample(entries),
+        "sample_by_app": {a: _sample(b.get("entries") or []) for a, b in by_app.items()},
         "kibana_urls": result.get("kibana_urls") or {},
         "artifact": str(out),
         "cost_seconds": round(time.time() - started, 1),
