@@ -6,6 +6,7 @@ from fastapi import APIRouter, Header, HTTPException
 from . import config
 from . import events, store
 from . import tools_exec
+from .kernel_io import sanitize
 
 router = APIRouter(tags=["tools"])
 
@@ -46,6 +47,8 @@ async def run_tool(tool_name: str, body: dict, x_tool_token: str | None = Header
     })
     try:
         result = await _run_in_executor(tool, run_id, seq, params)
+        # 清洗（DB 行可能含 datetime/Decimal），防止事件推送/响应序列化崩溃
+        result = sanitize(result)
         await events.publish(run_id, {
             "type": "tool_end",
             "data": {"tool": tool_name, "result": result},
@@ -80,4 +83,4 @@ async def post_event(run_id: str, body: dict, x_tool_token: str | None = Header(
 
 @router.get("/envs")
 async def list_envs():
-    return {"envs": ["dev", "sit"]}
+    return {"envs": ["dev", "sit"], "model": config.LLM_MODEL}

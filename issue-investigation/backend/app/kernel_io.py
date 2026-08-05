@@ -44,3 +44,23 @@ def read_text(path: Path, default: str = "") -> str:
     if not p.is_file():
         return default
     return p.read_text(encoding="utf-8")
+
+
+def sanitize(obj):
+    """递归清洗不可 JSON 序列化对象（datetime/date/Decimal/bytes → str）。"""
+    if obj is None or isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return str(obj)
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    if isinstance(obj, dict):
+        return {k: sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize(v) for v in obj]
+    try:
+        return str(obj)
+    except Exception:  # noqa: BLE001
+        return ""

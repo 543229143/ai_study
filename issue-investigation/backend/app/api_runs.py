@@ -74,7 +74,13 @@ async def create_run(req: CreateRunRequest):
         req.biz_key = req.biz_key or fields["biz_key"]
         req.app = req.app or fields["app"]
         req.scope = req.scope or fields["scope"]
-    title = req.trace_id or (req.alert or "")[:20] or req.biz_key or "问题排查"
+    title = (
+        req.trace_id
+        or (req.alert or "")[:20]
+        or req.biz_key
+        or ((req.text or "").strip()[:20])
+        or "问题排查"
+    )
     run = store.create_run({
         "title": title,
         "env": req.env,
@@ -139,6 +145,8 @@ async def send_message(run_id: str, req: SendMessageRequest):
 
     verdict = gate.gate_check(req.text, is_first=(run.get("message_count") or 0) == 0, history=history_texts)
     if not verdict["allow"]:
+        # 持久化拦截记录（刷新/重开会话后仍可见），再推送实时事件
+        store.append_rejected(run_id, req.text, _REJECT_MESSAGE)
         await events.publish(run_id, {
             "type": "gate_rejected",
             "data": {"reason": verdict["reason"], "message": _REJECT_MESSAGE},
@@ -186,10 +194,20 @@ async def get_cost(run_id: str):
 async def get_messages(run_id: str):
     if store.get_run(run_id) is None:
         raise HTTPException(404, "run not found")
+    # 合并：pi 会话消息 + 门禁拦截记录（按时间排序，用户/引导语完整可见）
+    rejected = store.list_rejected(run_id)
+    if not rejected:
+        try:
+            return await pi_client.get_messages(run_id)
+        except Exception:  # noqa: BLE001
+            return []
     try:
-        return await pi_client.get_messages(run_id)
+        pi_msgs = await pi_client.get_messages(run_id)
     except Exception:  # noqa: BLE001
-        return []
+        pi_msgs = []
+    merged = pi_msgs + rejected
+    merged.sort(key=lambda m: m.get("ts") or 0)
+    return merged
 
 
 @router.get("/{run_id}/report", response_class=PlainTextResponse)

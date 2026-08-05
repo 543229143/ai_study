@@ -26,7 +26,8 @@ async def stream(run_id: str, ws: WebSocket):
             except asyncio.TimeoutError:
                 await ws.send_text(json.dumps({"type": "ping"}))
                 continue
-            await ws.send_text(json.dumps(event, ensure_ascii=False))
+            # default=str 兜底：任何事件都不得因序列化问题打断 WS
+            await ws.send_text(json.dumps(event, ensure_ascii=False, default=str))
     except WebSocketDisconnect:
         pass
     finally:

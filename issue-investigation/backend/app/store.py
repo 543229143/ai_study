@@ -119,3 +119,22 @@ def update_env(run_id: str, env: str) -> dict:
 
 def has_turn_quota(run: dict) -> bool:
     return (run.get("message_count") or 0) < (run.get("turn_limit") or config.TURN_LIMIT)
+
+
+def rejected_path(run_id: str) -> Path:
+    return run_dir(run_id) / "rejected.json"
+
+
+def list_rejected(run_id: str) -> list[dict]:
+    """门禁拦截的对话记录（持久化，刷新后仍可见）。"""
+    data = read_json(rejected_path(run_id), [])
+    return data if isinstance(data, list) else []
+
+
+def append_rejected(run_id: str, user_text: str, reply: str) -> None:
+    """记录一次门禁拦截：用户原话 + 引导语，按时间排序与正常消息合并展示。"""
+    now_ms = int(time.time() * 1000)
+    entries = list_rejected(run_id)
+    entries.append({"role": "user", "text": user_text, "ts": now_ms})
+    entries.append({"role": "assistant", "text": reply, "ts": now_ms + 1})
+    write_json(rejected_path(run_id), entries)

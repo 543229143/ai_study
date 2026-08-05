@@ -96,6 +96,15 @@ export function openStream(id: string): WebSocket {
   return new WebSocket(`${proto}://${location.host}/runs/${id}/stream`);
 }
 
+export async function getModelName(): Promise<string> {
+  try {
+    const data = await api<{ model?: string }>("/envs");
+    return data.model || "deepseek-v4-flash";
+  } catch {
+    return "deepseek-v4-flash";
+  }
+}
+
 export function useGoDetail() {
   const router = useRouter();
   return (id: string) => router.push({ name: "detail", params: { id } });

@@ -859,7 +859,7 @@ onBeforeUnmount(disconnect);
 .run-meta {
   font-size: 11px;
   color: var(--ink-faint);
-  cursor: copy;
+  cursor: pointer;
   user-select: all;
 }
 
