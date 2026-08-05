@@ -771,41 +771,40 @@ onBeforeUnmount(disconnect);
   margin: 12px 0 6px;
 }
 
-/* 思考过程块 */
+/* 思考过程块：轻量折叠，无框感 */
 .thinking-block {
-  margin-bottom: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  overflow: hidden;
-  background: var(--bg);
+  margin-bottom: 6px;
 }
 
 .thinking-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 7px 12px;
+  gap: 6px;
+  padding: 2px 6px;
   background: transparent;
   border: none;
+  border-radius: 5px;
   cursor: pointer;
-  color: var(--ink-dim);
-  font-size: 12px;
-  text-align: left;
+  color: var(--ink-faint);
+  font-size: 11.5px;
+  transition: all 0.15s;
 }
 
 .thinking-toggle:hover {
-  background: var(--bg-2);
+  color: var(--ink-dim);
+  background: rgba(120, 150, 190, 0.08);
 }
 
 .chevron {
   display: inline-block;
-  transition: transform 0.15s;
-  font-size: 11px;
+  transition: transform 0.2s ease;
+  font-size: 10px;
+  color: var(--ink-faint);
 }
 
 .chevron.open {
   transform: rotate(90deg);
+  color: var(--accent);
 }
 
 .thinking-label {
@@ -813,14 +812,17 @@ onBeforeUnmount(disconnect);
 }
 
 .thinking-state {
-  margin-left: auto;
   font-size: 10px;
   color: var(--ink-faint);
+  opacity: 0.8;
 }
 
 .thinking-body {
-  padding: 8px 14px 10px;
-  border-top: 1px solid var(--line);
+  margin-top: 4px;
+  padding: 10px 14px;
+  border-left: 2px solid var(--line-2);
+  border-radius: 0 6px 6px 0;
+  background: rgba(120, 150, 190, 0.05);
   font-size: 12px;
   line-height: 1.7;
   color: var(--ink-dim);
@@ -831,8 +833,7 @@ onBeforeUnmount(disconnect);
 }
 
 .thinking-body.live {
-  border-top: none;
-  padding: 6px 14px;
+  margin-top: 4px;
   animation: breathe 2s ease-in-out infinite;
 }
 
@@ -860,14 +861,16 @@ onBeforeUnmount(disconnect);
   max-width: 900px;
   margin: 0 auto;
   background: var(--bg-2);
-  border: 1px solid var(--line-2);
-  border-radius: 12px;
-  padding: 8px 8px 8px 16px;
-  transition: border-color 0.15s;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 10px 10px 18px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .input-box:focus-within {
-  border-color: var(--accent);
+  border-color: rgba(45, 212, 191, 0.45);
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.08), 0 4px 24px rgba(0, 0, 0, 0.25);
 }
 
 .input-box textarea {
@@ -892,23 +895,27 @@ onBeforeUnmount(disconnect);
 .send-btn {
   flex: 0 0 auto;
   border: none;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent), #22c9b5);
   color: #06241f;
   font-size: 13px;
   font-weight: 650;
-  padding: 9px 22px;
-  border-radius: 8px;
+  padding: 9px 24px;
+  border-radius: 10px;
   cursor: pointer;
+  box-shadow: 0 2px 10px rgba(45, 212, 191, 0.25);
   transition: all 0.15s;
 }
 
 .send-btn:hover:not(:disabled) {
-  background: #4be0cc;
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(45, 212, 191, 0.35);
 }
 
 .send-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .input-hint {
