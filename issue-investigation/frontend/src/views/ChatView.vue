@@ -73,7 +73,7 @@
         <div v-if="!run && !messages.length" class="empty-state">
           <div class="empty-mark"></div>
           <p class="empty-title">描述你要排查的问题</p>
-          <p class="empty-hint">例如：查一下 traceId 95642f… 为什么报错<br />或：lcs 借据 LN123456789012 没有生成还款计划</p>
+          <p class="empty-hint">例如：查一下 traceId 95642f860689476c5bbedcef4b329ba8（32位）为什么报错<br />或：lcs 借据 LN123456789012 没有生成还款计划</p>
         </div>
 
         <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
@@ -351,7 +351,7 @@ let mdTimer: ReturnType<typeof setTimeout> | null = null;
 const remaining = computed(() => (run.value ? run.value.turn_limit - run.value.message_count : 10));
 const filteredSessions = computed(() => sessions.value.filter((s) => s.env === env.value));
 const inputPlaceholder = computed(() => {
-  if (!run.value) return "描述要排查的问题，按回车或点击开始排查…";
+  if (!run.value) return "描述要排查的问题，附 traceId / 业务单号 + 项目(lps/lcs...) 更准确";
   if (turnLimitReached.value) return "已达上限，请新建排查";
   return "继续提问… 例如：再查下这张表 / 换 sit 再看看";
 });
