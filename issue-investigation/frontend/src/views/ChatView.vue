@@ -167,6 +167,12 @@
         </button>
       </div>
 
+      <!-- 结论缺失警告横幅（自动补救仍缺结论时提示） -->
+      <div class="conclusion-warn" v-if="conclusionWarning">
+        <span class="interrupt-icon">⚠️</span>
+        <span class="interrupt-text">{{ conclusionWarning }}，可继续提问让 AI 补充</span>
+      </div>
+
       <!-- 底部输入 -->
       <div class="input-bar">
         <div class="input-box">
@@ -252,6 +258,7 @@ const copied = ref(false);
 const stopping = ref(false);
 const aborted = ref(false);
 const interrupted = ref(false);
+const conclusionWarning = ref("");
 const resuming = ref(false);
 const streamTokens = ref(0);
 const streamSpeed = ref(0);
@@ -610,6 +617,7 @@ async function handleEvent(e: any) {
     case "done":
       if (aborted.value) break;
       if (typeof e.data?.cost === "number") cost.value = e.data.cost;
+      conclusionWarning.value = e.data?.warning || "";
       flushStream();
       await refreshTurn();
       refreshRun();
@@ -681,6 +689,7 @@ async function send() {
   busy.value = true;
   running.value = true;
   aborted.value = false;
+  conclusionWarning.value = "";
   streamText.value = "";
   streamHtml.value = "";
   thinkingText.value = "";
@@ -1398,6 +1407,20 @@ onBeforeUnmount(disconnect);
 
 .interrupt-text {
   flex: 1;
+}
+
+.conclusion-warn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 22px 0;
+  padding: 9px 14px;
+  background: rgba(240, 160, 48, 0.1);
+  border: 1px solid rgba(240, 160, 48, 0.35);
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--warn);
 }
 
 .resume-btn {

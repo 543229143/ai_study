@@ -3,8 +3,9 @@
  *
  * 职责：
  * - 每 run 一个 AgentSession（持久化到 data/pi-agent/sessions/）
- * - 自定义工具 5 个，通过 HTTP 回调 FastAPI 后端执行排查内核
+ * - 自定义工具 6 个，通过 HTTP 回调 FastAPI 后端执行排查内核
  * - 会话事件流推送到后端 /events/{run_id}，由后端转发浏览器
+ * - 结论完整性校验：agent_end 时缺结论自动补救一轮，仍缺则以 warning 放行
  *
  * HTTP API（对后端开放）：
  *   POST /sessions/:runId                 创建会话
@@ -21,6 +22,7 @@ import {
   ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
+import { validateConclusion } from "./conclusion_check.ts";
 
 const PORT = Number(process.env.INV_ANALYSIS_PORT || 8700);
 const BACKEND_URL = process.env.INV_BACKEND_URL || "http://127.0.0.1:8600";
@@ -215,12 +217,76 @@ async function createSession(runId: string) {
   });
   const { session } = handle;
 
-  session.subscribe((event) => {
-    forwardEvent(runId, mapEvent(event));
-  });
+  subscribeSession(runId, handle);
 
   sessions.set(runId, handle);
   return handle;
+}
+
+/** 订阅会话事件：agent_end 前做结论完整性校验（缺结论→自动补救一轮；仍缺→done 带 warning）。 */
+function subscribeSession(runId: string, handle: SessionHandle) {
+  handle.session.subscribe((event) => {
+    const mapped = mapEvent(event);
+    if (mapped.type === "done") {
+      void concludeTurn(runId, handle, mapped);
+    } else {
+      forwardEvent(runId, mapped);
+    }
+  });
+}
+
+/** 本轮是否已自动补救过（每轮用户提问最多补救 1 次，新提问复位）。 */
+const remedied = new Map<string, boolean>();
+
+const REMEDY_PROMPT = (reason: string) =>
+  `系统提示：你的上一条回答未通过结论完整性检查：${reason}。` +
+  `请只补充输出缺失的「结论」小节（根因/置信度/证据要点）或「待补线索」小节（还需什么信息），` +
+  `不要重复已输出的排查过程与结论。`;
+
+/** 取会话状态中最后一条 assistant 消息文本（本轮最终答案）。 */
+function lastAssistantText(handle: SessionHandle): string {
+  const msgs = handle.session.agent?.state?.messages ?? [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i]?.role === "assistant") return extractText(msgs[i]);
+  }
+  return "";
+}
+
+/** agent_end → 校验结论；通过则 done；缺结论自动补救一轮（不计 message_count），仍缺则 done 带 warning。 */
+async function concludeTurn(runId: string, handle: SessionHandle, doneEvent: any) {
+  const v = validateConclusion(lastAssistantText(handle));
+  if (v.ok) {
+    forwardEvent(runId, doneEvent);
+    return;
+  }
+  if (remedied.get(runId)) {
+    forwardEvent(runId, {
+      ...doneEvent,
+      data: { ...(doneEvent.data || {}), warning: v.reason },
+    });
+    return;
+  }
+  remedied.set(runId, true);
+  pendingPrompts.set(runId, (pendingPrompts.get(runId) || 0) + 1);
+  touchActivity(runId);
+  try {
+    const prompt = REMEDY_PROMPT(v.reason);
+    if (handle.session.isStreaming) {
+      await handle.session.followUp(prompt);
+    } else {
+      await handle.session.prompt(prompt);
+    }
+  } catch (err) {
+    console.error("[concludeTurn remedy]", runId, err);
+    forwardEvent(runId, {
+      ...doneEvent,
+      data: { ...(doneEvent.data || {}), warning: v.reason },
+    });
+  } finally {
+    const n = (pendingPrompts.get(runId) || 1) - 1;
+    if (n <= 0) pendingPrompts.delete(runId);
+    else pendingPrompts.set(runId, n);
+  }
 }
 
 async function getSession(runId: string): Promise<SessionHandle> {
@@ -253,7 +319,7 @@ async function resumeSession(runId: string): Promise<SessionHandle> {
     resourceLoader: loader,
     sessionManager: SessionManager.open(files[0], sessionDir),
   });
-  handle.session.subscribe((event) => forwardEvent(runId, mapEvent(event)));
+  subscribeSession(runId, handle);
   sessions.set(runId, handle);
   return handle;
 }
@@ -618,6 +684,7 @@ Bun.serve({
         handle = await createSession(runId);
       }
       const prompt = `[当前排查环境: ${env}]（所有日志/库表/配置查询均按 ${env} 执行；如与之前声明不一致，以此为准）\n\n用户消息: ${text}`;
+      remedied.delete(runId); // 新提问恢复一次结论补救机会
       const run = async () => {
         pendingPrompts.set(runId, (pendingPrompts.get(runId) || 0) + 1);
         touchActivity(runId);
