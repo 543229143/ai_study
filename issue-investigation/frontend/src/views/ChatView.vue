@@ -170,6 +170,52 @@
             </div>
             <div class="msg-text" v-if="streamHtml" v-html="streamHtml"></div>
             <div class="thinking-hint mono" v-if="running && !streamText">推理中…</div>
+
+            <!-- 推理中恢复的半成品处理详情（中间过程/工具调用合并进执行中区域，不另起空消息） -->
+            <div v-if="(streamIntermediate?.length || streamToolCalls?.length) && streamDetailsOpen" class="details-block stream-details">
+              <button class="details-toggle" @click="streamDetailsOpen = !streamDetailsOpen">
+                <span class="chevron" :class="{ open: streamDetailsOpen }">▸</span>
+                <span class="details-label mono">处理详情</span>
+                <span class="details-count mono">
+                  · {{ streamIntermediate?.length || 0 }} 条消息
+                  · {{ streamToolCalls?.length || 0 }} 次工具调用
+                </span>
+              </button>
+              <div v-if="streamDetailsOpen" class="details-body">
+                <div v-if="streamIntermediate?.length" class="details-section">
+                  <div class="details-sec-title mono">中间过程</div>
+                  <div v-for="(it, j) in streamIntermediate" :key="'s' + j" class="details-text">{{ it }}</div>
+                </div>
+                <div v-if="streamToolCalls?.length" class="details-section">
+                  <div class="details-sec-title mono">工具调用</div>
+                  <div v-for="(tc, j) in streamToolCalls" :key="'st' + j" class="tool-call">
+                    <button class="tool-call-head" @click="tc.open = !tc.open">
+                      <span class="chevron" :class="{ open: tc.open }">▸</span>
+                      <span class="tool-call-name mono" :class="{ err: tc.error }">{{ tc.name }}</span>
+                      <span v-if="tc.error" class="tool-call-err mono">ERROR</span>
+                    </button>
+                    <div v-if="tc.open" class="tool-call-body">
+                      <div class="tool-call-part" v-if="tc.args && tc.args !== '{}'">
+                        <span class="mono tool-call-label">args</span>
+                        <pre class="tool-call-pre">{{ tc.args }}</pre>
+                      </div>
+                      <div class="tool-call-part" v-if="tc.result">
+                        <span class="mono tool-call-label">result</span>
+                        <pre class="tool-call-pre">{{ tc.result }}</pre>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button v-else-if="(streamIntermediate?.length || streamToolCalls?.length)" class="details-toggle stream-details-toggle" @click="streamDetailsOpen = true">
+              <span class="chevron">▸</span>
+              <span class="details-label mono">处理详情</span>
+              <span class="details-count mono">
+                · {{ streamIntermediate?.length || 0 }} 条消息
+                · {{ streamToolCalls?.length || 0 }} 次工具调用
+              </span>
+            </button>
           </div>
         </div>
       </div>
@@ -397,6 +443,10 @@ const resuming = ref(false);
 const streamTokens = ref(0);
 const streamSpeed = ref(0);
 const streamElapsed = ref(0);
+/** 推理中恢复的半成品处理详情（合并进执行中区域显示，避免空消息/丢中间过程） */
+const streamIntermediate = ref<string[]>([]);
+const streamToolCalls = ref<any[]>([]);
+const streamDetailsOpen = ref(false);
 const modelName = ref("deepseek-v4-flash");
 const msgBox = ref<HTMLElement | null>(null);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -715,6 +765,7 @@ async function loadSatisfaction(id: string) {
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
 let manuallyClosed = false; // 手动关闭（切换会话/组件卸载）→ 不触发自动重连
+let echoDrop = false; // 流式丢弃模式：模型回显 prompt 时整段丢弃（到 tool/message 边界重置）
 
 function connectStream(id: string) {
   // 防重复连接：切换会话/重连时旧连接可能残留（残留连接会重复收事件，导致消息重复显示）
@@ -810,10 +861,9 @@ async function resumeLastTurn() {
 
 /** 重连后/打开会话时从服务端同步消息，补回断线期间丢失的事件。
  *  运行中恢复（最终行为）：最后一条 incomplete 轮（半成品）——
- *  - 条目保留在消息列表（中间过程/工具调用可见，处理详情可展开）
- *  - 正文置空，交给流式区域续传（streamText 以它继续 + WS delta 追加）
- *  不渲染为独立完成消息 → 无"半成品快照 + 新流式"两条并存、内容不随刷新跳变；
- *  done 后 refreshTurn 全量替换（最终答案 + 中间过程 + 工具调用 + usage）。 */
+ *  - 中间过程/工具调用合并进「执行中」区域的处理详情（可见可展开，不丢）
+ *  - 正文由流式区域续传（streamText 以它继续 + WS delta 追加）
+ *  不渲染空条目消息（避免"空 AI 消息"怪异感）；done 后 refreshTurn 全量替换。 */
 async function syncFromServer() {
   if (!run.value) return;
   try {
@@ -833,8 +883,11 @@ async function syncFromServer() {
           streamHtml.value = renderMd(resume);
           streamTokens.value = estimateTokens(resume);
         }
-        // 保留条目（中间过程/工具调用可见），仅清空正文避免与流式区域重复
-        list[list.length - 1] = { ...last, text: "", html: "" };
+        // 中间过程/工具调用并入执行中区域（不渲染空条目）
+        streamIntermediate.value = last.intermediate || [];
+        streamToolCalls.value = last.tool_calls || [];
+        streamDetailsOpen.value = false;
+        list = list.slice(0, -1);
       }
     }
     messages.value = list;
@@ -846,19 +899,29 @@ async function syncFromServer() {
 async function handleEvent(e: any) {
   switch (e.type) {
     case "user_message":
-      // 前端已乐观回显，WS 事件跳过（避免重复）
+      // 前端已乐观回显，WS 事件跳过（避免重复）；新一轮开始重置回显丢弃模式
+      echoDrop = false;
       break;
     case "text_delta":
       if (aborted.value) break;
+      // 丢弃模式：模型回显 prompt（[当前排查环境…]/用户消息: [识别提示…]/原文）时整段丢弃，
+      // 直到段边界（tool_start/tool_end/message_end）重置；完成后 refreshTurn 用分组结果兜底
+      if (echoDrop) break;
+      if (/用户消息:|\[当前排查环境:|\[识别提示:/.test(e.data.text)) {
+        echoDrop = true;
+        break;
+      }
       queueDelta(e.data.text, "");
       break;
     case "message_end":
+      echoDrop = false;
       // 每条中间消息结束后插入换行分隔（流式展示时各过程消息分行，避免连成一段）
       if (aborted.value) break;
       queueDelta("\n\n", "");
       break;
     case "tool_start":
     case "tool_end":
+      echoDrop = false;
       // 工具调用前后分段（opencode 一轮单条消息多 part，中间无 message_end，需手动分隔）
       if (aborted.value) break;
       queueDelta("\n\n", "");
@@ -905,6 +968,9 @@ function flushStream() {
   streamText.value = "";
   streamHtml.value = "";
   thinkingText.value = "";
+  streamIntermediate.value = [];
+  streamToolCalls.value = [];
+  streamDetailsOpen.value = false;
   running.value = false;
   streamTokens.value = 0;
   streamElapsed.value = 0;

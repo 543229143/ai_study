@@ -31,6 +31,7 @@ export interface EventHandlerCtx {
 
 const partTypes = new Map<string, "text" | "reasoning">(); // partID -> 类型
 const partEmitted = new Set<string>(); // 已发过全量兜底文本的 partID
+const partStreamed = new Set<string>(); // 已流式（delta）过的 partID——updated 不再兜底全量（防重复）
 const toolStarted = new Set<string>(); // callID -> 已发 tool_start
 const toolEnded = new Set<string>(); // callID -> 已发 tool_end
 
@@ -46,6 +47,7 @@ export function createEventHandler(ctx: EventHandlerCtx): (ev: any) => void {
       case EVENT_PROTOCOL.ocPartDelta: {
         const { partID, field, delta } = props;
         if (field !== "text" || !delta) return;
+        partStreamed.add(partID);
         const type =
           partTypes.get(partID) === "reasoning" ? EVENT_PROTOCOL.outThinkingDelta : EVENT_PROTOCOL.outTextDelta;
         ctx.forwardEvent(runId, { type, data: { text: delta } });
@@ -56,8 +58,8 @@ export function createEventHandler(ctx: EventHandlerCtx): (ev: any) => void {
         if (!part) return;
         if (part.type === "text" || part.type === "reasoning") {
           partTypes.set(part.id, part.type);
-          // 兜底：无 delta 流（非流式模型）时全量发出一次
-          if (!partEmitted.has(part.id) && part.text) {
+          // 兜底：无 delta 流（非流式模型）时全量发出一次；已流式过的 part 不再重复发
+          if (!partStreamed.has(part.id) && !partEmitted.has(part.id) && part.text) {
             partEmitted.add(part.id);
             ctx.forwardEvent(runId, {
               type: part.type === "reasoning" ? EVENT_PROTOCOL.outThinkingDelta : EVENT_PROTOCOL.outTextDelta,
