@@ -1,12 +1,10 @@
 <template>
   <div class="cfg-page">
-    <div class="cfg-head">
-      <el-button text size="small" @click="$router.back()">← 返回</el-button>
-      <span class="cfg-title">排查配置</span>
-      <span class="cfg-sub mono">data/config/apps.json</span>
-      <span class="cfg-spacer"></span>
-      <el-button size="small" type="primary" :loading="saving" @click="save">保存配置</el-button>
-    </div>
+      <div class="cfg-head">
+        <el-button text size="small" @click="$router.back()">← 返回</el-button>
+        <span class="cfg-title">排查配置</span>
+        <span class="cfg-sub mono">data/config/apps.json · 应用按卡片单独保存</span>
+      </div>
 
     <el-alert
       v-if="message"
@@ -20,16 +18,30 @@
     <el-tabs v-model="tab" class="cfg-tabs">
       <!-- 应用配置 -->
       <el-tab-pane label="应用" name="apps">
-        <div class="app-toolbar">
+      <div class="app-toolbar">
+        <el-input
+          v-model="appFilter"
+          size="small"
+          clearable
+          class="app-filter"
+          placeholder="按应用名查询，如 lps"
+        />
+        <span class="app-count mono">{{ filteredApps.length }}/{{ Object.keys(data.apps).length }} 应用</span>
+        <div class="app-add-inline" v-if="addingApp">
           <el-input
-            v-model="appFilter"
+            v-model="newAppName"
             size="small"
-            clearable
-            class="app-filter"
-            placeholder="按应用名查询，如 lps"
+            autofocus
+            class="app-add-input"
+            placeholder="应用名（小写，如 fms）"
+            @keydown.enter="confirmAdd"
+            @keydown.esc="cancelAdd"
           />
-          <span class="app-count mono">{{ filteredApps.length }}/{{ Object.keys(data.apps).length }} 应用</span>
+          <el-button size="small" type="primary" @click="confirmAdd">确定</el-button>
+          <el-button size="small" text @click="cancelAdd">取消</el-button>
         </div>
+        <el-button v-else size="small" @click="addingApp = true">+ 添加应用</el-button>
+      </div>
         <div class="app-list">
           <div v-for="([name, cfg]) in filteredApps" :key="name" class="app-card">
             <div class="app-card-head">
@@ -43,6 +55,13 @@
                   class="db-input"
                 />
               </span>
+              <span class="app-saved mono" v-if="savedFlag[name]">✓ 已保存</span>
+              <el-button
+                size="small"
+                type="primary"
+                :loading="savingApp === name"
+                @click="saveApp(name)"
+              >保存</el-button>
               <el-button size="small" text type="danger" @click="removeApp(name)">删除应用</el-button>
             </div>
 
@@ -62,11 +81,6 @@
             <el-button size="small" text @click="cfg.biz_keys.push({ pattern: '', table: '', field: '' })">
               + 添加规则
             </el-button>
-          </div>
-
-          <div class="app-add">
-            <el-input v-model="newAppName" size="small" placeholder="新应用名（小写，如 fms）" class="app-add-input" />
-            <el-button size="small" @click="addApp">+ 添加应用</el-button>
           </div>
         </div>
       </el-tab-pane>
@@ -90,6 +104,10 @@
           <el-button size="small" text @click="data.terms.push({ term: '', apps: [] })">
             + 添加术语
           </el-button>
+          <div class="term-save">
+            <el-button size="small" type="primary" :loading="savingTerms" @click="saveTerms">保存术语</el-button>
+            <span class="app-saved mono" v-if="termsSaved">✓ 已保存</span>
+          </div>
           <p class="term-tip">
             用户输入命中术语（如"借据号"）时，自动注入对应应用；命中应用仅作优先扫描，不排除其他应用。
           </p>
@@ -107,7 +125,11 @@ const tab = ref("apps");
 const data = reactive<PlatformConfig>({ apps: {}, terms: [] });
 const newAppName = ref("");
 const appFilter = ref("");
-const saving = ref(false);
+const addingApp = ref(false);
+const savingApp = ref("");
+const savedFlag = reactive<Record<string, boolean>>({});
+const savingTerms = ref(false);
+const termsSaved = ref(false);
 const message = ref("");
 const messageType = ref<"success" | "error">("success");
 
@@ -121,10 +143,43 @@ function clone(): PlatformConfig {
   return JSON.parse(JSON.stringify(data));
 }
 
+/** 提交整份配置（后端 PUT 全量）；UI 上按应用/术语维度触发。 */
+async function persist(thenRefresh: boolean) {
+  const r = await updateConfig(clone());
+  if (!r.saved) {
+    throw new Error((r.errors || []).join("；"));
+  }
+  if (thenRefresh) {
+    const fresh = await getConfig();
+    Object.keys(data.apps).forEach((k) => delete data.apps[k]);
+    Object.assign(data.apps, fresh.apps);
+    data.terms.splice(0, data.terms.length, ...fresh.terms);
+  }
+}
+
 function addApp() {
   const name = newAppName.value.trim().toLowerCase();
   if (!name || data.apps[name]) return;
   data.apps[name] = { db_name: "", biz_keys: [] };
+  newAppName.value = "";
+}
+
+function confirmAdd() {
+  const name = newAppName.value.trim().toLowerCase();
+  if (!name) return;
+  if (data.apps[name]) {
+    messageType.value = "error";
+    message.value = `应用 ${name} 已存在`;
+    return;
+  }
+  addApp();
+  addingApp.value = false;
+  messageType.value = "success";
+  message.value = `应用 ${name} 已添加，点卡片上的「保存」写入配置`;
+}
+
+function cancelAdd() {
+  addingApp.value = false;
   newAppName.value = "";
 }
 
@@ -133,29 +188,39 @@ function removeApp(name: string) {
   for (const t of data.terms) {
     t.apps = t.apps.filter((a) => a !== name);
   }
+  delete savedFlag[name];
 }
 
-async function save() {
-  saving.value = true;
+/** 按单个应用维度保存（连同术语一起提交，后端为整份配置）。 */
+async function saveApp(name: string) {
+  savingApp.value = name;
   message.value = "";
   try {
-    const r = await updateConfig(clone());
-    if (r.saved) {
-      messageType.value = "success";
-      message.value = "配置已保存，即时生效";
-      const fresh = await getConfig();
-      Object.keys(data.apps).forEach((k) => delete data.apps[k]);
-      Object.assign(data.apps, fresh.apps);
-      data.terms.splice(0, data.terms.length, ...fresh.terms);
-    } else {
-      messageType.value = "error";
-      message.value = (r.errors || []).join("；");
-    }
+    await persist(true);
+    savedFlag[name] = true;
+    messageType.value = "success";
+    message.value = `应用 ${name} 已保存，即时生效`;
   } catch (err: any) {
     messageType.value = "error";
     message.value = `保存失败: ${err.message}`;
   } finally {
-    saving.value = false;
+    savingApp.value = "";
+  }
+}
+
+async function saveTerms() {
+  savingTerms.value = true;
+  message.value = "";
+  try {
+    await persist(true);
+    termsSaved.value = true;
+    messageType.value = "success";
+    message.value = "术语已保存，即时生效";
+  } catch (err: any) {
+    messageType.value = "error";
+    message.value = `保存失败: ${err.message}`;
+  } finally {
+    savingTerms.value = false;
   }
 }
 
@@ -226,6 +291,28 @@ onMounted(async () => {
   color: var(--ink-faint);
 }
 
+.app-add-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.app-add-input {
+  width: 220px;
+}
+
+.app-saved {
+  font-size: 11.5px;
+  color: var(--ok);
+}
+
+.term-save {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 .app-list {
   display: flex;
   flex-direction: column;
@@ -293,15 +380,6 @@ onMounted(async () => {
 
 .biz-del {
   width: 40px;
-}
-
-.app-add {
-  display: flex;
-  gap: 10px;
-}
-
-.app-add-input {
-  width: 240px;
 }
 
 .term-list {
