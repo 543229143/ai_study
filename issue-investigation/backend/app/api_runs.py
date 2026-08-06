@@ -179,6 +179,13 @@ async def send_message(run_id: str, req: SendMessageRequest):
     if hint:
         text = f"[识别提示: {hint}]\n\n{text}"
 
+    # 首轮初始采集：平台在 LLM 决策前先自动采一轮日志，注入「初始证据」段
+    # （对应 skill driver 的 logs 阶段先行；无查询值/采集失败时不阻塞，agent 自主补查）
+    if not req.resume and (run.get("message_count") or 0) == 0:
+        evidence = await _collect_initial_evidence(run_id, run, env)
+        if evidence:
+            text = f"[初始证据: 平台已自动完成首轮日志采集]\n{evidence}\n\n{text}"
+
     try:
         await pi_client.send_message(run_id, text, env, history=history_texts if not req.resume else None)
     except Exception as exc:  # noqa: BLE001
@@ -186,6 +193,39 @@ async def send_message(run_id: str, req: SendMessageRequest):
         await events.publish(run_id, {"type": "error", "data": {"message": f"转发 Pi 失败: {exc}"}})
         raise HTTPException(502, f"Pi 转发失败: {exc}")
     return {"status": "accepted"}
+
+
+async def _collect_initial_evidence(run_id: str, run: dict, env: str) -> str:
+    """首轮自动 collect_logs：识别参数 → 采集 → 返回可注入的摘要文本（失败返回空串）。"""
+    import asyncio
+
+    from .api_tools import _next_seq
+    from .tools_exec import collect_logs
+
+    mode = run.get("mode") or "trace_id"
+    query = run.get("trace_id") or run.get("alert") or run.get("biz_key") or ""
+    if not query:
+        return ""
+    apps = (run.get("priority_apps") or [])[:3] or [run.get("app") or "lps"]
+    params = {"env": env, "app": run.get("app") or "lps", "mode": mode, "query": query, "apps": apps}
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(None, lambda: collect_logs(run_id, _next_seq(run_id, "collect_logs"), params))
+    except Exception as exc:  # noqa: BLE001
+        print(f"[initial evidence] {run_id}: {exc}")
+        return ""
+
+    by_app = result.get("by_app") or {}
+    cov = result.get("time_coverage") or {}
+    lines = [
+        f"- 查询: {mode}={query[:80]}（应用: {','.join(apps)}）",
+        f"- 总命中: {result.get('total_entries') or 0} 条"
+        + (f"（时间覆盖 {cov.get('earliest')} ~ {cov.get('latest')}）" if cov.get("earliest") else ""),
+    ]
+    for a, info in by_app.items():
+        lines.append(f"- {a}: {info.get('count') or 0} 条" + (f"，错误 {info.get('error_count') or 0}" if info.get("error_count") else ""))
+    lines.append(f"- 完整产物: {result.get('artifact')}")
+    return "\n".join(lines)
 
 
 @router.get("/{run_id}/status")
