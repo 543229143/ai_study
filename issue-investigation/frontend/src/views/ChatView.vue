@@ -819,6 +819,8 @@ function disconnect() {
 
 /** 中断检测：run 标记 pending 且 agent 未在处理且最后一轮未完成 → 显示"继续排查"横幅。 */
 /** 中断检测：run 标记 pending 且 agent 未在处理且最后一轮未完成/有错误 → 显示"继续排查"横幅。 */
+/** 中断检测：run 标记 pending 且 agent 未在处理且已有 assistant 轮且最后轮未完成/有错误 → 显示"继续排查"横幅。
+ *  无任何 assistant 消息时（排查刚开始/模型思考中未输出）不判定中断，避免误报"上次排查被中断"。 */
 async function checkInterrupted() {
   if (!run.value) {
     interrupted.value = false;
@@ -829,8 +831,9 @@ async function checkInterrupted() {
     interrupted.value = false;
     return;
   }
+  const hasAssistant = messages.value.some((m) => m.role === "assistant");
   const lastAi = [...messages.value].reverse().find((m) => m.role === "assistant");
-  interrupted.value = !lastAi || !!lastAi.incomplete || !!run.value.last_error;
+  interrupted.value = hasAssistant && (!lastAi || !!lastAi.incomplete || !!run.value.last_error);
 }
 
 /** 手动继续：重发最后一条用户消息（跳过门禁、不计轮次）。 */
