@@ -243,8 +243,10 @@ const remedied = new Map<string, boolean>();
 
 const REMEDY_PROMPT = (reason: string) =>
   `系统提示：你的上一条回答未通过结论完整性检查：${reason}。` +
-  `请只补充输出缺失的「结论」小节（根因/置信度/证据要点）或「待补线索」小节（还需什么信息），` +
-  `不要重复已输出的排查过程与结论。`;
+  (reason.includes("多余断言")
+    ? `请重新输出「结论」小节：只保留根因/置信度/证据要点，删除"无需干预/无需操作"类总结断言，在证据链与结论处收尾，不要重复排查过程。`
+    : `请只补充输出缺失的「结论」小节（根因/置信度/证据要点）或「待补线索」小节（还需什么信息），` +
+      `不要重复已输出的排查过程与结论。`);
 
 /** 取会话状态中最后一条 assistant 消息文本（本轮最终答案）。 */
 function lastAssistantText(handle: SessionHandle): string {
@@ -255,9 +257,18 @@ function lastAssistantText(handle: SessionHandle): string {
   return "";
 }
 
+/** 取会话状态中最后一条 user 消息文本（校验"多余断言"是否算多余）。 */
+function lastUserText(handle: SessionHandle): string {
+  const msgs = handle.session.agent?.state?.messages ?? [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    if (msgs[i]?.role === "user") return extractText(msgs[i]);
+  }
+  return "";
+}
+
 /** agent_end → 校验结论；通过则 done；缺结论自动补救一轮（不计 message_count），仍缺则 done 带 warning。 */
 async function concludeTurn(runId: string, handle: SessionHandle, doneEvent: any) {
-  const v = validateConclusion(lastAssistantText(handle));
+  const v = validateConclusion(lastAssistantText(handle), { userText: lastUserText(handle) });
   if (v.ok) {
     forwardEvent(runId, doneEvent);
     return;
@@ -509,7 +520,7 @@ function parseSessionFile(path: string): any[] {
   return groupMessages(entries);
 }
 
-/** 去掉 sidecar 注入的环境头与"用户消息:"前缀，还原用户原话。 */
+/** 去掉 sidecar 注入的环境头、"用户消息:"前缀与平台注入的 [识别提示: ...] 块，还原用户原话。 */
 function stripUserPrefix(text: string): string {
   let t = text.trim();
   if (t.startsWith("[当前排查环境:")) {
@@ -518,6 +529,11 @@ function stripUserPrefix(text: string): string {
   }
   while (t.startsWith("用户消息:")) {
     t = t.replace(/^用户消息:\s*/, "");
+  }
+  // 剥掉环境头/"用户消息:"后可能残留前导空格（"用户消息: [识别提示...]"），先归位再剥块
+  t = t.trim();
+  while (/^\[识别提示:[^\]]*\]/.test(t)) {
+    t = t.replace(/^\[识别提示:[^\]]*\]\s*/, "").trim();
   }
   return t.trim();
 }
@@ -555,9 +571,9 @@ function groupMessages(entries: any[]): any[] {
     if (role === "toolResult") continue;
     if (role === "user") {
       const text = stripUserPrefix(extractText(m));
-      // 去重：连续相同的用户提问（自动续跑会重发同一条消息，避免历史重复显示）
-      const lastUser = [...out].reverse().find((x: any) => x.role === "user");
-      if (lastUser && lastUser.text === text) {
+      // 仅去重紧邻的重复（自动续跑重发同一消息）；隔了 assistant 回复的相同提问保留
+      const last = out[out.length - 1];
+      if (last && last.role === "user" && last.text === text) {
         continue;
       }
       out.push({ role: "user", text, ts: m.timestamp });

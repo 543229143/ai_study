@@ -159,6 +159,6 @@
 
 | 改动 | 位置 | 解决什么 |
 |---|---|---|
-| `read_artifact` 工具（路径校验+分段读） | `backend/app/tools_exec.py`、`analysis/src/index.ts`、`analysis/prompt.md` | 信息截断根因：LLM 可按需读全量产物 |
+| `read_artifact` 工具（路径校验+分段读） | `backend/app/tools_exec.py`、`config/opencode/.opencode/tools/read_artifact.ts`、`analysis/src/pi/index.ts`、`config/prompt.md` | 信息截断根因：LLM 可按需读全量产物 |
 | `time_coverage`（earliest/latest/entries） | `backend/app/tools_exec.py` | agent 感知采样时间覆盖，主动窗口化补查 |
 | collect_logs 样本 8→15 条 | `backend/app/tools_exec.py` | 摘要信息量适度提升 |

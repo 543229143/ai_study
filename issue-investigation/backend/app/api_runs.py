@@ -1,7 +1,6 @@
 """runs API：创建 / 列表 / 详情 / 消息发送（门禁+轮次+环境注入）/ 产物。"""
 from __future__ import annotations
 
-import json
 import re
 
 from typing import Optional
@@ -18,24 +17,6 @@ from .kernel_io import read_json, read_text
 from .models import CreateRunRequest, SendMessageRequest
 
 router = APIRouter(prefix="/runs", tags=["runs"])
-
-
-def list_agents() -> list[str]:
-    """平台可用 agent 列表。
-    - opencode 引擎：config/opencode/opencode.json 定义的（排除 opencode 内置）
-    - pi 引擎：无 agent 概念，仅 investigation
-    """
-    if config.AGENT_ENGINE == "pi":
-        return ["investigation"]
-    try:
-        data = json.loads(config.OPENCODE_CONFIG.read_text(encoding="utf-8"))
-        agents = [
-            k for k in (data.get("agent") or {})
-            if k not in config.OPENCODE_BUILTIN_AGENTS
-        ]
-        return agents or ["investigation"]
-    except Exception:  # noqa: BLE001
-        return ["investigation"]
 
 
 _REJECT_MESSAGE = (
@@ -202,7 +183,7 @@ async def send_message(run_id: str, req: SendMessageRequest):
     store.set_pending(run_id, True)
     await events.publish(run_id, {"type": "user_message", "data": {"text": req.text}})
 
-    # 识别结果记录为后台日志（不注入用户消息；供后续识别准确率分析/优化）
+    # 识别结果：timeline 记录 + 头部注入 [识别提示]（agent 生成 db_query/扫描计划时直接使用；展示层剥离）
     hits = config_store.detect_hits(req.text)
     rec_note = config_store.build_hint(hits)
     if rec_note:
@@ -210,6 +191,8 @@ async def send_message(run_id: str, req: SendMessageRequest):
 
     # 首轮初始采集：平台自动采一轮日志，产物落盘（不注入消息前缀，agent 按 prompt 引导用 read_artifact 复用）
     text = req.text
+    if rec_note:
+        text = f"[识别提示: {rec_note}]\n\n{text}"
     if not req.resume and (run.get("message_count") or 0) == 0:
         await _collect_initial_evidence(run_id, run, env)
 
@@ -264,10 +247,11 @@ async def get_run_status(run_id: str):
 
 @router.post("/{run_id}/abort")
 async def abort_run(run_id: str):
-    if store.get_run(run_id) is None:
+    run = store.get_run(run_id)
+    if run is None:
         raise HTTPException(404, "run not found")
     try:
-        await sidecar.abort_session(run_engine(store.get_run(run_id) or {}), run_id)
+        await sidecar.abort_session(run_engine(run), run_id)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"停止失败: {exc}")
     await events.publish(run_id, {"type": "user_aborted", "data": {}})

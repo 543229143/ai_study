@@ -22,7 +22,7 @@ import { readFileSync } from "node:fs";
 import {
   client,
   PROJECT_ROOT,
-  SESSIONS_DIR,
+  MAPPINGS_DIR,
   OPENCODE_DB,
   PORT,
   spawnServe,
@@ -76,8 +76,10 @@ function touchActivity(runId: string) {
 
 const REMEDY_PROMPT = (reason: string) =>
   `系统提示：你的上一条回答未通过结论完整性检查：${reason}。` +
-  `请只补充输出缺失的「结论」小节（根因/置信度/证据要点）或「待补线索」小节（还需什么信息），` +
-  `不要重复已输出的排查过程与结论。`;
+  (reason.includes("多余断言")
+    ? `请重新输出「结论」小节：只保留根因/置信度/证据要点，删除"无需干预/无需操作"类总结断言，在证据链与结论处收尾，不要重复排查过程。`
+    : `请只补充输出缺失的「结论」小节（根因/置信度/证据要点）或「待补线索」小节（还需什么信息），` +
+      `不要重复已输出的排查过程与结论。`);
 
 async function sendPrompt(runId: string, sessionId: string, text: string, agent = DEFAULT_AGENT): Promise<void> {
   activeTurn.set(runId, true);
@@ -114,7 +116,7 @@ async function concludeTurn(runId: string, sessionId: string): Promise<void> {
 
   let v: { ok: boolean; reason?: string };
   try {
-    v = validateConclusion(await lastAssistantText(runId));
+    v = validateConclusion(await lastAssistantText(runId), { userText: await lastUserText(runId) });
   } catch (err) {
     console.error("[concludeTurn validate]", runId, err);
     v = { ok: false, reason: String(err) };
@@ -144,6 +146,22 @@ async function lastAssistantText(runId: string): Promise<string> {
   for (let i = rows.length - 1; i >= 0; i--) {
     const row = rows[i];
     if (row.info.role !== "assistant") continue;
+    const texts = (row.parts as any[])
+      .filter((p) => p.type === "text" && p.text)
+      .map((p) => p.text)
+      .join("\n");
+    if (texts) return texts;
+  }
+  return "";
+}
+
+async function lastUserText(runId: string): Promise<string> {
+  const sessionId = await resolveSessionId(runId);
+  const result: any = await client.session.messages({ path: { id: sessionId } });
+  const rows = result.data ?? result;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i];
+    if (row.info.role !== "user") continue;
     const texts = (row.parts as any[])
       .filter((p) => p.type === "text" && p.text)
       .map((p) => p.text)
@@ -255,6 +273,7 @@ async function startEventStream(): Promise<void> {
 }
 
 // ---------- 消息分组（opencode rows → 平台消息结构） ----------
+/** 去掉 sidecar 注入的环境头、"用户消息:"前缀与平台注入的 [识别提示: ...] 块，还原用户原话。 */
 function stripUserPrefix(text: string): string {
   let t = text.trim();
   if (t.startsWith("[当前排查环境:")) {
@@ -263,6 +282,11 @@ function stripUserPrefix(text: string): string {
   }
   while (t.startsWith("用户消息:")) {
     t = t.replace(/^用户消息:\s*/, "");
+  }
+  // 剥掉环境头/"用户消息:"后可能残留前导空格（"用户消息: [识别提示...]"），先归位再剥块
+  t = t.trim();
+  while (/^\[识别提示:[^\]]*\]/.test(t)) {
+    t = t.replace(/^\[识别提示:[^\]]*\]\s*/, "").trim();
   }
   return t.trim();
 }
@@ -288,8 +312,9 @@ function groupRows(rows: any[]): any[] {
       const text = stripUserPrefix(
         parts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n"),
       );
-      const lastUser = [...out].reverse().find((x: any) => x.role === "user");
-      if (lastUser && lastUser.text === text) continue;
+      const last = out[out.length - 1];
+      // 仅去重紧邻的重复（自动续跑重发同一消息）；隔了 assistant 回复的相同提问保留
+      if (last && last.role === "user" && last.text === text) continue;
       out.push({ role: "user", text, ts: info.time?.created ?? Date.now() });
       continue;
     }
@@ -346,7 +371,7 @@ function groupRows(rows: any[]): any[] {
       cacheRead: cur.usage.cacheRead + tokens.cacheRead,
       cost: 0,
     };
-    cur.incomplete = !info.time?.completed;
+    cur.incomplete = !info.time?.completed || !!info.error;
   }
 
   // 过滤空 assistant 轮（既无文本也无工具调用）
@@ -481,7 +506,7 @@ function sdkVersion(): string {
   }
 }
 
-console.log(`[analysis] opencode sidecar listening on :${PORT}, sessionsDir=${SESSIONS_DIR}, opencodeDb=${OPENCODE_DB}`);
+console.log(`[analysis] opencode sidecar listening on :${PORT}, mappingsDir=${MAPPINGS_DIR}, opencodeDb=${OPENCODE_DB}`);
 console.log(`[analysis] @opencode-ai/sdk@${sdkVersion()} 事件协议 v${EVENT_PROTOCOL_VERSION}`);
 
 startEventStream();

@@ -10,7 +10,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk";
 export const PORT = Number(process.env.INV_ANALYSIS_PORT || 8700);
 export const PROJECT_ROOT = join(import.meta.dir, "..", "..", "..");
 export const DATA_DIR = process.env.INV_DATA_DIR || join(PROJECT_ROOT, "data");
-export const SESSIONS_DIR = join(DATA_DIR, "pi", "sessions");
+export const MAPPINGS_DIR = join(DATA_DIR, "opencode", "mappings");
 export const OPENCODE_CONFIG_DIR = join(PROJECT_ROOT, "config", "opencode");
 export const OPENCODE_PORT = Number(process.env.INV_OPENCODE_PORT || 14100);
 export const OPENCODE_DATA_DIR = join(DATA_DIR, "opencode");
@@ -79,7 +79,7 @@ export const runBySession = new Map<string, string>(); // sessionId -> runId
 const creating = new Map<string, Promise<string>>(); // runId -> 创建中（并发去重）
 
 function mappingFile(runId: string): string {
-  return join(SESSIONS_DIR, `run-${runId}`, "session.json");
+  return join(MAPPINGS_DIR, `run-${runId}`, "session.json");
 }
 
 export function loadMapping(runId: string): string | null {
@@ -92,7 +92,7 @@ export function loadMapping(runId: string): string | null {
 }
 
 function saveMapping(runId: string, sessionId: string): void {
-  mkdirSync(join(SESSIONS_DIR, `run-${runId}`), { recursive: true });
+  mkdirSync(join(MAPPINGS_DIR, `run-${runId}`), { recursive: true });
   writeFileSync(
     mappingFile(runId),
     JSON.stringify({ run_id: runId, session_id: sessionId, created_at: new Date().toISOString() }, null, 2),
@@ -141,10 +141,10 @@ export async function findRunBySession(sessionId: string): Promise<string | null
   const cached = runBySession.get(sessionId);
   if (cached) return cached;
   try {
-    const dirs = new Bun.Glob(`run-*/session.json`).scanSync({ cwd: SESSIONS_DIR });
+    const dirs = new Bun.Glob(`run-*/session.json`).scanSync({ cwd: MAPPINGS_DIR });
     for (const rel of dirs) {
       try {
-        const data = JSON.parse(readFileSync(join(SESSIONS_DIR, rel), "utf-8"));
+        const data = JSON.parse(readFileSync(join(MAPPINGS_DIR, rel), "utf-8"));
         if (data.session_id === sessionId) {
           register(data.run_id, sessionId);
           return data.run_id;

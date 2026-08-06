@@ -75,7 +75,7 @@
             <div v-for="(rule, i) in cfg.biz_keys" :key="i" class="biz-row">
               <el-input v-model="rule.pattern" size="small" class="biz-pat" placeholder="如 CR\d{19}（单反斜杠）" />
               <el-input v-model="rule.table" size="small" class="biz-col" placeholder="ap_fund_appl" />
-              <el-input v-model="rule.field" size="small" class="biz-col" placeholder="apply_req_no" />
+              <el-input v-model="rule.field" size="small" class="biz-col" placeholder="appl_no" />
               <el-button size="small" text type="danger" class="biz-del" @click="cfg.biz_keys.splice(i, 1)">删</el-button>
             </div>
             <el-button size="small" text @click="cfg.biz_keys.push({ pattern: '', table: '', field: '' })">

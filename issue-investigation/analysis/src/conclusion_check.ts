@@ -47,6 +47,17 @@ const NEGATED_CLUE_RE = /(?:无|暂无|不需要|无需|不需要提供)\s*(?:�
 
 const CONFIDENCE_RE = /(?:置信度|confidence)\D*?(\d{1,3})\s*%/i;
 
+/** 多余断言：结论后的"无需干预/无需操作"类总结（用户未询问下一步时属于冗余，硬校验必补救）。 */
+const EXTRA_CLAIM_RE = /(?:无需|不需要|不用)\s*(?:用户侧?|用户|人工|额外)?\s*(?:干预|操作|处理|关注|介入|跟进)/;
+
+/** 用户问题含这些词 → 可能是在问"下一步怎么做"，此时"无需干预"类回答不算多余。 */
+const ASK_NEXT_RE = /怎么办|下一步|建议|是否需要|需要做|后续|还(?:需要|要不要)/;
+
+export interface ConclusionCheckOptions {
+  /** 用户提问原文：询问"下一步"时，"无需干预"类回答不算多余断言。 */
+  userText?: string;
+}
+
 export interface ConclusionCheckResult {
   ok: boolean;
   reason: string | null;
@@ -57,7 +68,7 @@ function hasClues(text: string): boolean {
   return CLUE_MARKERS.some((m) => text.includes(m));
 }
 
-export function validateConclusion(text: string): ConclusionCheckResult {
+export function validateConclusion(text: string, opts: ConclusionCheckOptions = {}): ConclusionCheckResult {
   const t = (text || "").trim();
   if (!t || t.length < 6 || PLACEHOLDER_MARKERS.some((m) => t.includes(m))) {
     return { ok: false, reason: "回答缺少明确的排查结论" };
@@ -72,6 +83,10 @@ export function validateConclusion(text: string): ConclusionCheckResult {
     if (v < 30 && !hasClues(t)) {
       return { ok: false, reason: `置信度仅 ${v}%，回答未说明待补线索` };
     }
+  }
+  const askedNext = ASK_NEXT_RE.test(opts.userText || "");
+  if (!askedNext && EXTRA_CLAIM_RE.test(t)) {
+    return { ok: false, reason: "回答包含'无需干预/无需操作'类多余断言（用户未询问下一步），应在证据链+结论处收尾" };
   }
   return { ok: true, reason: null };
 }

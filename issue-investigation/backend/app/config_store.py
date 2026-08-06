@@ -26,28 +26,31 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "lps": {
             "db_name": "",
             "biz_keys": [
-                {"pattern": r"LO\d{10,}", "table": "loan", "field": "loan_no"},
-                {"pattern": r"LN\d{10,}", "table": "loan", "field": "loan_no"},
+                {"pattern": r"CR\d{19}", "table": "ap_fund_appl", "field": "appl_no"},
             ],
         },
         "lcs": {
             "db_name": "",
             "biz_keys": [
-                {"pattern": r"LO\d{10,}", "table": "loan", "field": "loan_no"},
+                {"pattern": r"LO\d{19}", "table": "pilot_loan", "field": "loan_no"},
             ],
         },
         "goa": {"db_name": "", "biz_keys": []},
         "ams": {"db_name": "", "biz_keys": []},
     },
     "terms": [
-        {"term": "授信号", "apps": ["lps"]},
-        {"term": "借据号", "apps": ["lps"]},
-        {"term": "账户", "apps": ["ams"]},
+        {"term": "授信号", "apps": ["lps", "lcs", "ams"]},
+        {"term": "借据号", "apps": ["lcs", "lps"]},
+        {"term": "账户", "apps": ["ams", "lcs"]},
     ],
     "system_terms": [
         {
             "term": "日志id",
             "meaning": "ES 的 32 位十六进制 traceId（=requestNo），用于 ES 日志与跨服务链路检索",
+        },
+        {
+            "term": "机构日志",
+            "meaning": "goa系统  优先搜索es并带io.kyoto.support.goa.aspect.FacadeLogAspect",
         },
     ],
 }

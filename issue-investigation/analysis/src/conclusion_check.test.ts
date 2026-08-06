@@ -63,3 +63,28 @@ test("显式否定线索（暂无待补线索）→ 视为未填", () => {
   const r = validateConclusion("## 结论\n无法确定根因，暂无待补线索。");
   expect(r.ok).toBe(false);
 });
+
+test("多余断言（无需用户侧干预）且用户未问下一步 → 拦截", () => {
+  const r = validateConclusion(
+    "## 结论\n根因：资金方风控拒绝。置信度 90%。\n3. 同用户本次授信已由其他资金方正常承接（盛备等已出额度），无需用户侧干预。",
+    { userText: "查一下日志id CR1260470767292911616 为什么被拒绝" },
+  );
+  expect(r.ok).toBe(false);
+  expect(r.reason).toContain("多余断言");
+});
+
+test("多余断言但用户问了下一步 → 通过", () => {
+  const r = validateConclusion(
+    "## 结论\n根因：资金方风控拒绝。置信度 90%。\n无需用户侧干预。",
+    { userText: "这个还需要处理吗？下一步怎么办" },
+  );
+  expect(r.ok).toBe(true);
+});
+
+test("正常结论（无多余断言）→ 通过", () => {
+  const r = validateConclusion(
+    "## 结论\n根因：资金方风控拒绝，回调明文 failed_reason 即拒绝原因。置信度 90%。",
+    { userText: "查一下为什么被拒绝" },
+  );
+  expect(r.ok).toBe(true);
+});

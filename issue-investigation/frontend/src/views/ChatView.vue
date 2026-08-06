@@ -177,7 +177,7 @@
       <!-- 中断提示横幅 -->
       <div class="interrupt-bar" v-if="interrupted">
         <span class="interrupt-icon">⚠️</span>
-        <span class="interrupt-text">上次排查被中断（未完成），可继续排查或重新提问</span>
+        <span class="interrupt-text">{{ interruptText }}</span>
         <button class="resume-btn" :disabled="resuming" @click="resumeLastTurn">
           {{ resuming ? '继续中…' : '继续排查' }}
         </button>
@@ -339,6 +339,14 @@ const copied = ref(false);
 const stopping = ref(false);
 const aborted = ref(false);
 const interrupted = ref(false);
+
+/** 中断横幅文案：有错误记录时展示原因。 */
+const interruptText = computed(() => {
+  if (run.value?.last_error) {
+    return `上次排查因错误中断：${run.value.last_error}`;
+  }
+  return "上次排查被中断（未完成），可继续排查或重新提问";
+});
 const conclusionWarning = ref("");
 
 // ---- 满意度评价（run 级单次；10 轮结束强制） ----
@@ -410,6 +418,15 @@ function estimateTokens(text: string): number {
 function updateSpeed() {
   const elapsed = (Date.now() - turnStartAt) / 1000;
   streamSpeed.value = elapsed > 0 ? streamTokens.value / elapsed : 0;
+}
+
+/** 错误文案人性化：模型服务繁忙类错误统一提示，不透出内部限流细节。 */
+function friendlyError(msg: string): string {
+  const s = String(msg || "");
+  if (/queue is full|503|busy|限流|rate.?limit|concurrent/i.test(s)) {
+    return "模型服务繁忙，请稍后重试";
+  }
+  return s;
 }
 
 /** 执行中动态耗时秒表（250ms 刷新）。 */
@@ -528,7 +545,7 @@ function queueDelta(text: string, thinking: string) {
       }
       if (tokText || tokThink) {
         streamTokens.value += estimateTokens(tokText + tokThink);
-
+        updateSpeed();
       }
     });
   }
@@ -589,9 +606,9 @@ async function loadSessions() {
   }
 }
 
-/** agent 显示名：pi 显示为数学符号 π。 */
+/** agent 显示名：直接显示引擎名（pi 不用数学符号 π）。 */
 function agentLabel(a: string): string {
-  return a === "pi" ? "π" : a;
+  return a;
 }
 
 /** 切换 agent：重置当前会话视图，会话列表按新 agent 过滤。 */
@@ -646,7 +663,7 @@ async function openSession(s: Run) {
   run.value = s;
   env.value = s.env;
   turnLimitReached.value = (s.turn_limit - s.message_count) <= 0;
-  // 推理中恢复：run 仍在 processing 时恢复执行中状态（incomplete 轮由 syncFromServer 剔除，流式从 WS 继续）
+  // 推理中恢复：run 仍在 processing 时恢复执行中状态（incomplete 轮由 syncFromServer 保留，流式从 WS 继续）
   const st = await getRunStatus(s.id).catch(() => null);
   if (st && st.pending && st.processing && !st.sidecar_unreachable) {
     running.value = true;
@@ -697,8 +714,17 @@ async function loadSatisfaction(id: string) {
 
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectAttempts = 0;
+let manuallyClosed = false; // 手动关闭（切换会话/组件卸载）→ 不触发自动重连
 
 function connectStream(id: string) {
+  // 防重复连接：切换会话/重连时旧连接可能残留（残留连接会重复收事件，导致消息重复显示）
+  if (ws) {
+    ws.onclose = null;
+    ws.onerror = null;
+    ws.close();
+    ws = null;
+  }
+  manuallyClosed = false;
   ws = openStream(id);
   ws.onopen = () => {
     wsOk.value = true;
@@ -707,7 +733,7 @@ function connectStream(id: string) {
   };
   ws.onclose = () => {
     wsOk.value = false;
-    scheduleReconnect();
+    if (!manuallyClosed) scheduleReconnect();
   };
   ws.onerror = () => {
     wsOk.value = false;
@@ -728,15 +754,20 @@ function scheduleReconnect() {
 }
 
 function disconnect() {
+  manuallyClosed = true;
   if (reconnectTimer) {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
-  ws?.close();
-  ws = null;
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
 }
 
 /** 中断检测：run 标记 pending 且 agent 未在处理且最后一轮未完成 → 显示"继续排查"横幅。 */
+/** 中断检测：run 标记 pending 且 agent 未在处理且最后一轮未完成/有错误 → 显示"继续排查"横幅。 */
 async function checkInterrupted() {
   if (!run.value) {
     interrupted.value = false;
@@ -748,7 +779,7 @@ async function checkInterrupted() {
     return;
   }
   const lastAi = [...messages.value].reverse().find((m) => m.role === "assistant");
-  interrupted.value = !lastAi || !!lastAi.incomplete;
+  interrupted.value = !lastAi || !!lastAi.incomplete || !!run.value.last_error;
 }
 
 /** 手动继续：重发最后一条用户消息（跳过门禁、不计轮次）。 */
@@ -778,25 +809,17 @@ async function resumeLastTurn() {
 }
 
 /** 重连后/打开会话时从服务端同步消息，补回断线期间丢失的事件。
- *  运行中：丢弃最后一个未完成（无 usage）的 assistant 轮次——半成品由流式块继续展示，
- *  避免"问一次出现两个回答"。 */
+ *  运行中恢复：保留 incomplete 轮（中间过程/工具调用可见），最终答案由 done 后 refreshTurn 全量合并。 */
 async function syncFromServer() {
   if (!run.value) return;
   try {
     const msgs = await getMessages(run.value.id);
     if (!msgs.length) return;
-    let list = msgs.map((m) => ({
+    messages.value = msgs.map((m) => ({
       ...m,
       html: renderMd(m.text),
       collapsed: m.role === "assistant",
     }));
-    if (running.value) {
-      const last = list[list.length - 1];
-      if (last.role === "assistant" && last.incomplete) {
-        list = list.slice(0, -1);
-      }
-    }
-    messages.value = list;
   } catch {
     /* 忽略，等下次重连再同步 */
   }
@@ -845,7 +868,7 @@ async function handleEvent(e: any) {
       break;
     case "error":
       running.value = false;
-      pushMsg({ role: "assistant", text: `> ❌ ${e.data.message}` });
+      pushMsg({ role: "assistant", text: `> ❌ ${friendlyError(e.data.message)}` });
       break;
   }
   scrollBottom();

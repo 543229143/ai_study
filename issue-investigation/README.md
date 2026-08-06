@@ -35,7 +35,7 @@ issue-investigation/
 │   ├── pi/                   # pi 配置（双引擎共存）
 │   └── prompt.md             # 公共系统提示词（两引擎共用）
 ├── frontend/                 # Vue3 + Element Plus
-├── data/                     # 运行时（gitignore）：runs/{run_id}/ 产物、opencode/opencode.db、pi/sessions/ 映射
+├── data/                     # 运行时（gitignore）：runs/{run_id}/ 产物、opencode/opencode.db + mappings/、pi/sessions/ JSONL
 ├── dev.sh                    # 一键启动四进程
 └── opencode 相关代码/配置均以「引擎目录」划分：见名知 agent（opencode ↔ pi 不混放）
 ```
@@ -62,6 +62,10 @@ cd analysis
 bun install
 bun run src/opencode/index.ts        # opencode 引擎（默认）；pi 引擎：bun run src/pi/index.ts
 
+# 2.1 opencode 自定义工具依赖（首次必须）：6 个排查工具（.opencode/tools/）依赖 @opencode-ai/plugin
+cd config/opencode/.opencode
+npm install
+
 # 3. 前端（WS 直连后端，见 frontend/.env.development 的 VITE_WS_BASE）
 cd frontend
 npm install
@@ -73,14 +77,14 @@ npm run dev          # http://localhost:5178
 - **LLM 通道**：opencode 全局 auth（`~/.local/share/opencode/auth.json`，provider `opencode-go`）；模型/agent 在 `config/opencode/opencode.json` 配置
 - **Agent 权限**：`config/opencode/opencode.json` 的 `investigation` agent 设置 `"*": "deny"` + 6 工具 allow——模型无法执行 bash/文件读写，只能调排查工具
 - **当前模型**：`opencode/deepseek-v4-flash-free`（免费档，成本 0）。注意免费档偶发空回复（最后一步无输出），平台结论校验会自动补救一轮；仍缺则警告横幅提示。如需更稳定可改回 `opencode-go/deepseek-v4-flash`（付费）
-- **Agent 切换**：页面顶栏 agent 下拉（`/runs/agents` 读取 opencode.json 定义的 agent，排除 opencode 内置）；切换后左侧会话列表与历史页只显示该 agent 的会话
+- **Agent 切换**：页面顶栏 agent 下拉（`/runs/agents` 返回可用引擎列表 `opencode`/`pi`，opencode.json 定义的 `investigation` agent 为当前默认）；切换后左侧会话列表与历史页只显示该引擎的会话
 - 历史 `config/pi/` 仅保留给后端门禁读 key（`backend/app/config.py`），sidecar 不再使用
 
 ## 功能
 
 - **对话式排查**：单输入框提问（traceId/告警/业务单号均可）→ Agent 自主调用工具（collect_logs / scan_code / nacos_query / db_query / run_investigation / read_artifact）→ 流式输出结论
 - **环境/主应用自动识别**：文本显式提到 sit/dev 时自动切换环境；应用/模式/业务键从描述自动解析，用户无需感知内部概念
-- **首轮初始采集**：首条消息时平台自动先采一轮日志（识别参数驱动，对应 skill 的 logs 阶段先行），结果摘要+artifact 引用注入「初始证据」段，agent 从证据出发决策；无命中/失败不阻塞
+- **首轮初始采集**：首条消息时平台自动先采一轮日志（识别参数驱动，对应 skill 的 logs 阶段先行），产物落盘 `artifacts/collect_logs-001/`，agent 按提示词引导用 read_artifact 复用（不注入消息前缀）；无命中/失败不阻塞
 - **应用/术语配置页**（`/config`）：应用清单（不再写死 4 个）、数据库名（空则取应用名）、业务键规则（单号→表/字段）、业务术语→应用映射；命中业务键/术语时自动带出表字段并注入排查，命中应用**优先扫描**（不排除其他应用）；保存即时生效
 - **pi-web 风格界面**：左侧会话栏（按环境过滤）+ 聊天区 + 单输入框；AI 回答=最终答案+折叠的"处理详情"（中间过程+工具调用，逐个可展开）；脚注显示模型/usage/成本/时间
 - **多轮追问**：同一会话延续上下文，可中途切换 dev/sit
@@ -114,9 +118,11 @@ npm run dev          # http://localhost:5178
 | `INV_WORKSPACE_ROOT` | `/Users/zhaoxin/code/inner` | 4 业务仓父目录（代码扫描） |
 | `INV_DATA_DIR` | 项目下 `data/` | 产物根目录 |
 | `INV_AGENT_ENGINE` | `opencode` | Agent 引擎：`opencode` \| `pi`（双引擎共存） |
-| `INV_PI_BASE_URL` | `8700`（opencode 引擎）/ `8701`（pi 引擎） | 分析服务地址 |
+| `INV_OPENCODE_BASE_URL` | `8700` | opencode 分析服务地址 |
+| `INV_PI_BASE_URL` | `8701` | pi 分析服务地址 |
+| `INV_OPENCODE_CONFIG` | `config/opencode/opencode.json` | opencode agent 配置文件（agent/权限/模型） |
 | `INV_PI_TOOL_TOKEN` | `local-dev-token` | 工具端点鉴权 |
-| `INV_LLM_MODEL` | `deepseek-v4-flash` | 门禁/分析模型 |
+| `INV_LLM_MODEL` | `deepseek-v4-flash` | 门禁模型（agent 推理模型见 opencode.json） |
 | `INV_IDLE_TIMEOUT_MS` | `180000` | 排查无事件看护超时（自动停止防卡死） |
 | `INV_BACKEND_URL`（analysis 侧） | `http://127.0.0.1:8600` | sidecar 回调后端地址 |
 | `INV_OPENCODE_PORT`（analysis 侧） | `14100` | opencode serve 端口（数据隔离到 `data/opencode/opencode.db`） |
@@ -134,7 +140,7 @@ LLM key 读全局 `~/.local/share/opencode/auth.json`（provider: opencode-go）
     "lps": {
       "db_name": "",                      // 数据库名，留空 = 取应用名（再回退 env-connections schemas）
       "biz_keys": [                       // 业务键规则：单号命中 → 自动带出 表/字段
-        {"pattern": "LO\\d{10,}", "table": "loan", "field": "loan_no"}
+        {"pattern": "CR\\d{19}", "table": "ap_fund_appl", "field": "appl_no"}
       ]
     }
   },
@@ -166,7 +172,7 @@ opencode（`@opencode-ai/sdk` + `opencode serve` 二进制）迭代频繁，升�
 ### 升级步骤
 
 ```
-1. 备份 data/opencode/（opencode DB）与 data/pi/sessions/（run↔session 映射）
+1. 备份 data/opencode/（opencode DB）与 data/opencode/mappings/（run↔session 映射）；pi 引擎另备 data/pi/sessions/
 2. 读新版 CHANGELOG 的「Breaking Changes」段（GitHub: anomalyco/opencode）
 3. analysis/package.json 改 @opencode-ai/sdk 版本号（精确锁定）→ bun install
 4. 升级 opencode 二进制（opencode upgrade），重启 sidecar，核对启动日志：

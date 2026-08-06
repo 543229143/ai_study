@@ -67,6 +67,18 @@ async def _run_in_executor(tool, run_id: str, seq: int, params: dict):
     return await loop.run_in_executor(None, lambda: tool(run_id, seq, params))
 
 
+def _record_event(run_id: str, ev: dict) -> None:
+    """事件落地：done/error 清除 pending；error 落 timeline 与 run.json（刷新后仍可见）。"""
+    ev_type = ev.get("type")
+    if ev_type in ("done", "error"):
+        store.set_pending(run_id, False)
+    if ev_type == "error":
+        msg = (ev.get("data") or {}).get("message", "")
+        if msg:
+            store.update_run(run_id, {"last_error": msg[:500]})
+            store.append_timeline(run_id, "agent_error", msg[:200])
+
+
 @router.post("/events/{run_id}")
 async def post_event(run_id: str, body: dict, x_tool_token: str | None = Header(default=None)):
     """agent sidecar 推送会话事件（支持单条或批量 {events: [...]}）。"""
@@ -75,15 +87,13 @@ async def post_event(run_id: str, body: dict, x_tool_token: str | None = Header(
     if isinstance(batch, list):
         for ev in batch:
             if isinstance(ev, dict):
+                _record_event(run_id, ev)
                 await events.publish(run_id, ev)
-                if ev.get("type") in ("done", "error"):
-                    store.set_pending(run_id, False)
         if any(ev.get("type") == "done" for ev in batch if isinstance(ev, dict)):
             await _snapshot_conclusion(run_id)
     else:
+        _record_event(run_id, body)
         await events.publish(run_id, body)
-        if body.get("type") in ("done", "error"):
-            store.set_pending(run_id, False)
         if body.get("type") == "done":
             await _snapshot_conclusion(run_id)
     return {"ok": True}
@@ -135,6 +145,28 @@ async def _snapshot_conclusion(run_id: str) -> None:
         print(f"[conclusion snapshot] {run_id}: {exc}")
 
 
+def _agent_model() -> str:
+    """agent 推理模型：opencode 引擎读 opencode.json 的 investigation.model；pi 引擎读 models-store.json 首个模型。"""
+    import json
+
+    try:
+        if config.AGENT_ENGINE == "pi":
+            store_path = config.PI_AGENT_DIR / "models-store.json"
+            data = json.loads(store_path.read_text(encoding="utf-8"))
+            for provider, info in (data or {}).items():
+                models = info.get("models") or []
+                if models:
+                    return f"{provider}/{models[0].get('id', '')}"
+        else:
+            data = json.loads(config.OPENCODE_CONFIG.read_text(encoding="utf-8"))
+            m = (data.get("agent") or {}).get("investigation", {}).get("model")
+            if m:
+                return m
+    except Exception:  # noqa: BLE001
+        pass
+    return config.LLM_MODEL
+
+
 @router.get("/envs")
 async def list_envs():
-    return {"envs": ["dev", "sit"], "model": config.LLM_MODEL}
+    return {"envs": ["dev", "sit"], "model": config.LLM_MODEL, "agent_model": _agent_model()}

@@ -50,9 +50,9 @@ const agents = ref<string[]>(["opencode", "pi"]);
 const agent = ref("opencode");
 const go = useGoDetail();
 
-/** agent 显示名：pi 显示为数学符号 π。 */
+/** agent 显示名：直接显示引擎名（pi 不用数学符号 π）。 */
 function agentLabel(a: string): string {
-  return a === "pi" ? "π" : a;
+  return a;
 }
 
 function fmt(ts: number): string {

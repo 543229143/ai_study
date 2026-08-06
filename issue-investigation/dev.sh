@@ -21,6 +21,11 @@ if [ ! -d "$ROOT/frontend/node_modules" ]; then
   (cd "$ROOT/frontend" && npm install --silent)
 fi
 
+if [ ! -d "$ROOT/config/opencode/.opencode/node_modules" ]; then
+  echo "[dev] 安装 opencode 工具依赖..."
+  (cd "$ROOT/config/opencode/.opencode" && npm install --silent)
+fi
+
 # 启动前自动清理端口残留进程（上次异常退出/Ctrl+C 之外的场景）
 PORTS=(8600 8700 8701 5178 14100)
 for PORT in "${PORTS[@]}"; do

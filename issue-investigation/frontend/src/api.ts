@@ -38,6 +38,7 @@ export interface Run {
   engine: string;
   message_count: number;
   turn_limit: number;
+  last_error?: string;
   created_at: number;
   updated_at: number;
   timeline: Array<{ t: number; event: string; detail: string }>;
@@ -174,8 +175,8 @@ export function openStream(id: string): WebSocket {
 
 export async function getModelName(): Promise<string> {
   try {
-    const data = await api<{ model?: string }>("/envs");
-    return data.model || "deepseek-v4-flash";
+    const data = await api<{ model?: string; agent_model?: string }>("/envs");
+    return data.agent_model || data.model || "deepseek-v4-flash";
   } catch {
     return "deepseek-v4-flash";
   }
