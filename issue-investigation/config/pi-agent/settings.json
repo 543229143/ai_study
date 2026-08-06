@@ -1,0 +1,10 @@
+{
+  "lastChangelogVersion": "0.81.1",
+  "theme": "dark",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-flash",
+  "defaultThinkingLevel": "high",
+  "defaultProjectTrust": "always",
+  "hideThinkingBlock": true,
+  "quietStartup": true
+}

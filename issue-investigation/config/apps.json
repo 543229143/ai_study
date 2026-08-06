@@ -1,0 +1,59 @@
+{
+  "apps": {
+    "lps": {
+      "db_name": "",
+      "biz_keys": [
+        {
+          "pattern": "LO\\d{10,}",
+          "table": "loan",
+          "field": "loan_no"
+        },
+        {
+          "pattern": "LN\\d{10,}",
+          "table": "loan",
+          "field": "loan_no"
+        }
+      ]
+    },
+    "lcs": {
+      "db_name": "",
+      "biz_keys": [
+        {
+          "pattern": "LO\\d{10,}",
+          "table": "loan",
+          "field": "loan_no"
+        }
+      ]
+    },
+    "goa": {
+      "db_name": "",
+      "biz_keys": []
+    },
+    "ams": {
+      "db_name": "",
+      "biz_keys": []
+    }
+  },
+  "terms": [
+    {
+      "term": "授信号",
+      "apps": [
+        "lps"
+      ]
+    },
+    {
+      "term": "借据号",
+      "apps": [
+        "lcs",
+        "lps"
+      ]
+    },
+    {
+      "term": "账户",
+      "apps": [
+        "ams",
+        "lcs"
+      ]
+    }
+  ]
+}
