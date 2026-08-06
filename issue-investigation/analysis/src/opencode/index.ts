@@ -31,7 +31,7 @@ import {
   findRunBySession,
 } from "./client.ts";
 import { createEventHandler, EVENT_PROTOCOL_VERSION } from "./events.ts";
-import { validateConclusion } from "../conclusion_check.ts";
+import { validateConclusion, ECHO_MARKERS } from "../conclusion_check.ts";
 
 const BACKEND_URL = process.env.INV_BACKEND_URL || "http://127.0.0.1:8600";
 const TOOL_TOKEN = process.env.INV_PI_TOOL_TOKEN || "local-dev-token";
@@ -320,7 +320,9 @@ function groupRows(rows: any[]): any[] {
     }
     if (info.role !== "assistant") continue;
 
-    const texts = parts.filter((p) => p.type === "text" && p.text).map((p) => p.text ?? "");
+    const texts = parts
+      .filter((p) => p.type === "text" && p.text && !ECHO_MARKERS.some((m) => p.text.includes(m)))
+      .map((p) => p.text ?? "");
     const reasoning = parts.filter((p) => p.type === "reasoning" && p.text).map((p) => p.text ?? "");
     const calls = parts
       .filter((p) => p.type === "tool")

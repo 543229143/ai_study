@@ -11,6 +11,7 @@ export default defineConfig({
       "/tools": { target: "http://127.0.0.1:8600", changeOrigin: true },
       "/events": { target: "http://127.0.0.1:8600", changeOrigin: true },
       "/health": { target: "http://127.0.0.1:8600", changeOrigin: true },
+      "/envs": { target: "http://127.0.0.1:8600", changeOrigin: true },
       "/config": {
         target: "http://127.0.0.1:8600",
         changeOrigin: true,

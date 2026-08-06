@@ -14,6 +14,9 @@ const PLACEHOLDER_MARKERS = [
   "（若无需排除项",
 ];
 
+/** 回显标记：回答包含平台注入前缀/用户消息原文（模型空回复时常见），视为未作答。 */
+export const ECHO_MARKERS = ["用户消息:", "[当前排查环境:", "[识别提示:"];
+
 const INCONCLUSIVE_MARKERS = [
   "未能定位",
   "未定位根因",
@@ -72,6 +75,9 @@ export function validateConclusion(text: string, opts: ConclusionCheckOptions = 
   const t = (text || "").trim();
   if (!t || t.length < 6 || PLACEHOLDER_MARKERS.some((m) => t.includes(m))) {
     return { ok: false, reason: "回答缺少明确的排查结论" };
+  }
+  if (ECHO_MARKERS.some((m) => t.includes(m))) {
+    return { ok: false, reason: "回答疑似回显了用户消息/平台注入前缀（模型空回复），未给出排查结论" };
   }
   const inconclusive = INCONCLUSIVE_MARKERS.some((m) => t.includes(m));
   if (inconclusive && !hasClues(t)) {

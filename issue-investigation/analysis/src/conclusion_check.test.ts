@@ -88,3 +88,16 @@ test("正常结论（无多余断言）→ 通过", () => {
   );
   expect(r.ok).toBe(true);
 });
+
+test("回显用户消息（含平台注入标记）→ 拦截", () => {
+  const r = validateConclusion(
+    "[当前排查环境: sit]（所有日志/库表/配置查询均按 sit 执行；如与之前声明不一致，以此为准）\n\n用户消息: [识别提示: 业务键命中表字段: lps.ap_fund_appl.appl_no]\n\n查一下日志id CR1260470767292911616 为什么被拒绝",
+  );
+  expect(r.ok).toBe(false);
+  expect(r.reason).toContain("回显");
+});
+
+test("含识别提示前缀的回显 → 拦截", () => {
+  const r = validateConclusion("[识别提示: 命中 lps.ap_fund_appl.appl_no]\n\n查一下为什么被拒绝");
+  expect(r.ok).toBe(false);
+});

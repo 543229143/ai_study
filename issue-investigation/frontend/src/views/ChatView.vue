@@ -809,17 +809,32 @@ async function resumeLastTurn() {
 }
 
 /** 重连后/打开会话时从服务端同步消息，补回断线期间丢失的事件。
- *  运行中恢复：保留 incomplete 轮（中间过程/工具调用可见），最终答案由 done 后 refreshTurn 全量合并。 */
+ *  运行中恢复：最后一条 incomplete 轮（半成品）合并进流式区域续传（streamText 以它继续 + WS delta 追加），
+ *  不渲染为独立完成消息——避免刷新后"半成品快照 + 新流式"两条并存、内容随刷新跳变；
+ *  中间过程/工具调用由 done 后 refreshTurn 全量合并保留。 */
 async function syncFromServer() {
   if (!run.value) return;
   try {
     const msgs = await getMessages(run.value.id);
     if (!msgs.length) return;
-    messages.value = msgs.map((m) => ({
+    let list = msgs.map((m) => ({
       ...m,
       html: renderMd(m.text),
       collapsed: m.role === "assistant",
     }));
+    if (running.value) {
+      const last = list[list.length - 1];
+      if (last.role === "assistant" && last.incomplete) {
+        const resume = last.text || "";
+        if (resume) {
+          streamText.value = resume;
+          streamHtml.value = renderMd(resume);
+          streamTokens.value = estimateTokens(resume);
+        }
+        list = list.slice(0, -1);
+      }
+    }
+    messages.value = list;
   } catch {
     /* 忽略，等下次重连再同步 */
   }

@@ -25,7 +25,7 @@ import {
   ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { validateConclusion } from "../conclusion_check.ts";
+import { validateConclusion, ECHO_MARKERS } from "../conclusion_check.ts";
 
 const PORT = Number(process.env.INV_ANALYSIS_PORT || 8701);
 const BACKEND_URL = process.env.INV_BACKEND_URL || "http://127.0.0.1:8600";
@@ -582,7 +582,9 @@ function groupMessages(entries: any[]): any[] {
     }
     if (role !== "assistant") continue;
 
-    const text = extractText(m);
+    const rawText = extractText(m);
+    // 展示层过滤回显段（模型空回复时复述用户消息/平台注入前缀）
+    const text = ECHO_MARKERS.some((mark) => rawText.includes(mark)) ? "" : rawText;
     const thinking = extractThinking(m);
     const calls = (m.content ?? [])
       .filter((c: any) => c?.type === "toolCall")
