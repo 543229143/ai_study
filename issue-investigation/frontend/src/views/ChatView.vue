@@ -152,9 +152,9 @@
             <div class="gen-stats mono" v-if="running">
               <span class="gen-model">{{ modelName }}</span>
               <span class="gen-down">↓</span>
-              <span class="gen-tokens">{{ streamTokens.toLocaleString() }}</span>
+              <span class="gen-tokens">{{ streamTokens.toLocaleString() }} tokens（估算）</span>
               <span class="gen-sep">·</span>
-              <span class="gen-speed">{{ streamSpeed.toFixed(1) }} t/s</span>
+              <span class="gen-speed">{{ streamSpeed.toFixed(1) }} t/s 生成速度</span>
               <span class="gen-sep">·</span>
               <span class="gen-elapsed">{{ streamElapsed.toFixed(1) }}s</span>
             </div>
