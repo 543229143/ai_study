@@ -594,6 +594,7 @@ function groupMessages(entries: any[]): any[] {
         intermediate: [],
         tool_calls: [],
         ts: m.timestamp,
+        start_ts: m.timestamp,
         model: m.model ?? "",
         usage: null,
       };
@@ -620,6 +621,14 @@ function groupMessages(entries: any[]): any[] {
   const filtered = out.filter(
     (m: any) => !(m.role === "assistant" && !m.text && !m.tool_calls.length),
   );
+
+  // 每轮处理耗时（秒）：该轮最后一条 assistant 消息 - 该轮第一条（毫秒时间戳）
+  for (const m of filtered) {
+    if (m.role === "assistant" && m.start_ts) {
+      m.elapsed = Math.round(((m.ts - m.start_ts) / 1000) * 10) / 10;
+      delete m.start_ts;
+    }
+  }
 
   // 中断检测：最后一条原始条目不是"stop"结尾的 assistant 消息 → 最后一轮未完成
   // （重启/被杀时文件通常停在 toolUse 消息、toolResult 或 user 消息之后）

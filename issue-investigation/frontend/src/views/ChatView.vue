@@ -138,6 +138,7 @@
                   {{ m.usage.cacheRead.toLocaleString() }} cache R ·
                   {{ fmtCost(m.usage.cost) }}
                 </template>
+                <template v-if="m.elapsed != null"><span class="foot-sep"> · </span>{{ m.elapsed.toFixed(1) }}s</template>
                 <template v-if="m.ts"><span class="foot-sep"> · </span>{{ fmtTime(m.ts) }}</template>
               </div>
             </div>
@@ -154,6 +155,8 @@
               <span class="gen-tokens">{{ streamTokens.toLocaleString() }}</span>
               <span class="gen-sep">·</span>
               <span class="gen-speed">{{ streamSpeed.toFixed(1) }} t/s</span>
+              <span class="gen-sep">·</span>
+              <span class="gen-elapsed">{{ streamElapsed.toFixed(1) }}s</span>
             </div>
             <div class="msg-text" v-if="streamHtml" v-html="streamHtml"></div>
             <div class="thinking-hint mono" v-if="running && !streamText">推理中…</div>
@@ -297,6 +300,7 @@ interface Msg {
   text: string;
   html?: string;
   ts?: number;
+  elapsed?: number;
   model?: string;
   thinking?: string;
   intermediate?: string[];
@@ -371,10 +375,12 @@ async function submitRate(forced = false) {
 const resuming = ref(false);
 const streamTokens = ref(0);
 const streamSpeed = ref(0);
+const streamElapsed = ref(0);
 const modelName = ref("deepseek-v4-flash");
 const msgBox = ref<HTMLElement | null>(null);
 let copiedTimer: ReturnType<typeof setTimeout> | null = null;
 let turnStartAt = 0;
+let elapsedTimer: ReturnType<typeof setInterval> | null = null;
 
 /** 估算 token 数：中文≈1 token/字，英文≈1 token/4 字符。 */
 function estimateTokens(text: string): number {
@@ -391,6 +397,22 @@ function estimateTokens(text: string): number {
 function updateSpeed() {
   const elapsed = (Date.now() - turnStartAt) / 1000;
   streamSpeed.value = elapsed > 0 ? streamTokens.value / elapsed : 0;
+}
+
+/** 执行中动态耗时秒表（250ms 刷新）。 */
+function startElapsedTimer() {
+  streamElapsed.value = 0;
+  stopElapsedTimer();
+  elapsedTimer = setInterval(() => {
+    if (running.value) streamElapsed.value = (Date.now() - turnStartAt) / 1000;
+  }, 250);
+}
+
+function stopElapsedTimer() {
+  if (elapsedTimer) {
+    clearInterval(elapsedTimer);
+    elapsedTimer = null;
+  }
 }
 
 async function copyRunId() {
@@ -562,6 +584,8 @@ function newSession() {
   cost.value = null;
   streamTokens.value = 0;
   streamSpeed.value = 0;
+  streamElapsed.value = 0;
+  stopElapsedTimer();
   draft.value = "";
   showRate.value = false;
   forceRateVisible.value = false;
@@ -686,6 +710,7 @@ async function resumeLastTurn() {
   thinkingText.value = "";
   streamTokens.value = 0;
   turnStartAt = Date.now();
+  startElapsedTimer();
   try {
     await sendMessage(run.value.id, lastUser.text.trim(), env.value, true);
     await refreshRun();
@@ -782,6 +807,8 @@ function flushStream() {
   running.value = false;
   streamTokens.value = 0;
   streamSpeed.value = 0;
+  streamElapsed.value = 0;
+  stopElapsedTimer();
   void text;
   void thinking;
 }
@@ -838,6 +865,7 @@ async function send() {
   streamTokens.value = 0;
   streamSpeed.value = 0;
   turnStartAt = Date.now();
+  startElapsedTimer();
   // 乐观回显：立即显示用户消息，不等后端建会话/门禁
   pushMsg({ role: "user", text });
   try {
