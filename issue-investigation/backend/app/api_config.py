@@ -1,4 +1,4 @@
-"""配置 API：应用清单 / 数据库名 / 业务键规则 / 业务术语（data/config/apps.json）。"""
+"""配置 API：应用清单 / 数据库名 / 业务键规则 / 业务术语（config/apps.json）。"""
 from __future__ import annotations
 
 from typing import Any

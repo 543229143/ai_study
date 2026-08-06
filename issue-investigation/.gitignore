@@ -1,4 +1,5 @@
 data/
+config/
 backend/.venv/
 frontend/node_modules/
 analysis/node_modules/

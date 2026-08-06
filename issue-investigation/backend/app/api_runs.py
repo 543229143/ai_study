@@ -24,7 +24,7 @@ _TURN_LIMIT_MESSAGE = "本轮排查已达 10 轮沟通上限，请新建会话�
 
 
 def detect_from_text(text: str, env: str, app: str | None) -> dict:
-    """从用户文本自动识别排查参数（应用清单/业务键/术语来自 data/config/apps.json）。"""
+    """从用户文本自动识别排查参数（应用清单/业务键/术语来自 config/apps.json）。"""
     t = text.strip()
     app_names = config_store.app_names() or ["lps"]
     hits = config_store.detect_hits(t)

@@ -27,7 +27,10 @@ LLM_BASE_URL = os.environ.get(
     "INV_LLM_BASE_URL", "https://opencode.ai/zen/go/v1"
 )
 LLM_MODEL = os.environ.get("INV_LLM_MODEL", "deepseek-v4-flash")
-PI_AGENT_DIR = Path(os.environ.get("INV_PI_AGENT_DIR", Path.home() / ".pi" / "agent"))
+# LLM 配置目录（项目根 config/pi-agent/，独立于 ~/.pi/agent 与 data/）
+PI_AGENT_DIR = Path(
+    os.environ.get("INV_PI_CONFIG_DIR") or PROJECT_ROOT.parent / "config" / "pi-agent"
+)
 
 TURN_LIMIT = 10
 
@@ -38,7 +41,7 @@ for _d in (RUNS_DIR, PI_SESSIONS_DIR):
 
 
 def load_llm_api_key() -> str:
-    """读取 LLM key：环境变量优先，其次 ~/.pi/agent/auth.json 的 opencode-go。"""
+    """读取 LLM key：环境变量优先，其次 config/pi-agent/auth.json 的 opencode-go。"""
     env_key = os.environ.get("INV_LLM_API_KEY", "").strip()
     if env_key:
         return env_key

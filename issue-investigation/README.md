@@ -24,7 +24,7 @@ cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8600
 
-# 2. Pi 分析服务（复用 ~/.pi/agent 的 LLM 配置，自动拷贝到 data/pi-agent/）
+# 2. Pi 分析服务（LLM 配置在 config/pi-agent/，首次部署需准备 4 个配置文件）
 cd analysis
 bun install
 bun run src/index.ts
@@ -36,6 +36,20 @@ npm run dev          # http://localhost:5178
 ```
 
 或一键：`./dev.sh`（启动前自动清理三端口残留进程）。
+
+## 配置目录（config/，不入库）
+
+```
+config/
+├── pi-agent/                 # LLM 配置（sidecar 与门禁共用；缺失时 sidecar 启动 fail-fast）
+│   ├── auth.json             # opencode-go.key（平台独立 key，不依赖 ~/.pi/agent）
+│   ├── settings.json         # defaultProvider/defaultModel
+│   ├── models.json
+│   └── models-store.json
+└── apps.json                 # 平台应用配置（配置页 /config 读写）
+```
+
+首次部署：准备上述 4 个 LLM 配置文件（可参考原 `~/.pi/agent/` 对应文件，key 换成平台独立 key）；`apps.json` 缺失时自动生成默认模板。
 
 ## 功能
 
@@ -80,11 +94,11 @@ npm run dev          # http://localhost:5178
 | `INV_BACKEND_URL`（analysis 侧） | `http://127.0.0.1:8600` | sidecar 回调后端地址 |
 | `VITE_WS_BASE`（frontend/.env.development） | `127.0.0.1:8600` | 浏览器 WS 直连后端地址（局域网共享时改本机 IP） |
 
-LLM key 自动读 `~/.pi/agent/auth.json`（provider: opencode-go），无需配置。
+LLM key 读 `config/pi-agent/auth.json`（provider: opencode-go，独立于本机 ~/.pi/agent）。
 
 ## 应用/术语配置（`/config` 页面）
 
-配置存 `data/config/apps.json`（无页面时可直接编辑，保存即时生效）：
+配置存 `config/apps.json`（无页面时可直接编辑，保存即时生效）：
 
 ```json
 {
@@ -117,13 +131,13 @@ Pi（`@earendil-works/pi-coding-agent`）周更频繁，升级前必须按此流
 | `createAgentSession` / `defineTool` / `DefaultResourceLoader` / `ModelRuntime` | `analysis/src/index.ts` 入口 | 编译期报错可发现 |
 | `SessionManager.create/open` + 会话 JSONL 格式 | 会话持久化（`data/pi-agent/sessions/`） | 有内置迁移，但迁移失败会丢历史 |
 | **事件字段名**（message_update / text_delta / thinking_delta / tool_execution_start / tool_execution_end / message_end / agent_end） | `analysis/src/index.ts` 的 `mapEvent()` 与 `EVENT_PROTOCOL` 常量表 | ⚠️ 运行时协议，编译期发现不了，**最危险** |
-| auth.json / models.json / models-store.json 格式 | 启动时自动从 `~/.pi/agent` 拷贝 | 格式变更需删除 `data/pi-agent/` 下对应文件重启重拷 |
+| auth.json / models.json / models-store.json 格式 | `config/pi-agent/` 内维护（fail-fast 校验） | 格式变更需更新 `config/pi-agent/` 下对应文件后重启 |
 | TypeBox（工具参数 schema） | `defineTool` 参数定义 | 0.83.0 曾出 TypeBox 破坏性变更 |
 
 ### 升级步骤
 
 ```
-1. 备份 data/pi-agent/（历史会话 + 配置）
+1. 备份 data/pi-agent/sessions/（历史会话）与 config/pi-agent/（LLM 配置）
 2. 读新版 CHANGELOG 的「Breaking Changes」段（node_modules/.../CHANGELOG.md 或 GitHub）
 3. analysis/package.json 改版本号（精确锁定，不写 ^）→ bun install
 4. 重启 sidecar，核对启动日志：

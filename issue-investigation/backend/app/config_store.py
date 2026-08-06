@@ -1,4 +1,4 @@
-"""平台应用配置（data/config/apps.json）：应用清单/数据库名/业务键规则/业务术语。
+"""平台应用配置（config/apps.json）：应用清单/数据库名/业务键规则/业务术语。
 
 - 应用名 → 数据库名（空则取应用名）；一个应用可配多个业务键规则（pattern → 表/字段）
 - 业务术语 → 应用名（可多选）
@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 from pathlib import Path
@@ -14,7 +15,9 @@ from typing import Any
 
 from . import config
 
-CONFIG_PATH = Path(config.DATA_DIR) / "config" / "apps.json"
+CONFIG_PATH = Path(
+    os.environ.get("INV_APP_CONFIG_PATH") or config.PROJECT_ROOT.parent / "config" / "apps.json"
+)
 
 _lock = threading.Lock()
 

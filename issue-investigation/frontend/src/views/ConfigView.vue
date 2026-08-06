@@ -3,7 +3,7 @@
       <div class="cfg-head">
         <el-button text size="small" @click="$router.back()">← 返回</el-button>
         <span class="cfg-title">排查配置</span>
-        <span class="cfg-sub mono">data/config/apps.json · 应用按卡片单独保存</span>
+        <span class="cfg-sub mono">config/apps.json · 应用按卡片单独保存</span>
       </div>
 
     <el-alert

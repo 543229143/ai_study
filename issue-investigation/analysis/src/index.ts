@@ -7,12 +7,15 @@
  * - 会话事件流推送到后端 /events/{run_id}，由后端转发浏览器
  * - 结论完整性校验：agent_end 时缺结论自动补救一轮，仍缺则以 warning 放行
  *
+ * 配置：LLM 配置（auth/settings/models）在 config/pi-agent/（项目根，不入库），
+ * 会话数据在 data/pi-agent/sessions/（运行时，gitignore）。
+ *
  * HTTP API（对后端开放）：
  *   POST /sessions/:runId                 创建会话
  *   POST /sessions/:runId/prompt          {text, env, history} 发送用户消息
  *   GET  /sessions/:runId/messages        返回简化消息列表（页面刷新恢复）
  */
-import { existsSync, mkdirSync, copyFileSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Type } from "typebox";
 import {
@@ -28,27 +31,27 @@ const PORT = Number(process.env.INV_ANALYSIS_PORT || 8700);
 const BACKEND_URL = process.env.INV_BACKEND_URL || "http://127.0.0.1:8600";
 const TOOL_TOKEN = process.env.INV_PI_TOOL_TOKEN || "local-dev-token";
 const DATA_DIR = process.env.INV_DATA_DIR || join(import.meta.dir, "..", "..", "data");
-const HOME_AGENT_DIR = process.env.PI_AGENT_DIR_HOME || join(process.env.HOME || ".", ".pi", "agent");
 const AGENT_DIR = process.env.INV_PI_AGENT_DIR || join(DATA_DIR, "pi-agent");
+// LLM 配置目录（独立于 ~/.pi/agent 与 data/）
+const CONFIG_DIR = process.env.INV_PI_CONFIG_DIR || join(import.meta.dir, "..", "..", "config", "pi-agent");
 
 const SYSTEM_PROMPT = await Bun.file(join(import.meta.dir, "..", "prompt.md")).text();
 
-// ---------- agentDir 引导：复用本机 ~/.pi/agent 的 LLM 配置 ----------
-function bootstrapAgentDir() {
-  mkdirSync(AGENT_DIR, { recursive: true });
-  for (const f of ["auth.json", "settings.json", "models.json", "models-store.json"]) {
-    const dest = join(AGENT_DIR, f);
-    if (!existsSync(dest)) {
-      const src = join(HOME_AGENT_DIR, f);
-      if (existsSync(src)) copyFileSync(src, dest);
-    }
+// ---------- LLM 配置校验：fail-fast，缺失时给出迁移指引 ----------
+function checkConfigFiles() {
+  const required = ["auth.json", "settings.json", "models.json", "models-store.json"];
+  const missing = required.filter((f) => !existsSync(join(CONFIG_DIR, f)));
+  if (missing.length > 0) {
+    console.error(`[analysis] 缺少 LLM 配置文件: ${missing.join(", ")} (${CONFIG_DIR})`);
+    console.error(`[analysis] 请从 data/pi-agent/ 移入这 4 个文件，或写入新的 key（auth.json 的 opencode-go.key）。`);
+    process.exit(1);
   }
 }
-bootstrapAgentDir();
+checkConfigFiles();
 
 const modelRuntime = await ModelRuntime.create({
-  authPath: join(AGENT_DIR, "auth.json"),
-  modelsPath: join(AGENT_DIR, "models.json"),
+  authPath: join(CONFIG_DIR, "auth.json"),
+  modelsPath: join(CONFIG_DIR, "models.json"),
 });
 
 // ---------- 工具：HTTP 回调后端执行排查内核 ----------
@@ -200,14 +203,14 @@ async function createSession(runId: string) {
   const sessionManager = SessionManager.create(join(DATA_DIR, "pi-agent"), sessionDir);
   const loader = new DefaultResourceLoader({
     cwd: join(DATA_DIR, "pi-agent"),
-    agentDir: AGENT_DIR,
+    agentDir: CONFIG_DIR,
     systemPromptOverride: () => SYSTEM_PROMPT,
   });
   await loader.reload();
 
   const handle = await createAgentSession({
     cwd: join(DATA_DIR, "pi-agent"),
-    agentDir: AGENT_DIR,
+    agentDir: CONFIG_DIR,
     modelRuntime,
     customTools: buildTools(runId),
     noTools: "builtin",
@@ -304,14 +307,14 @@ async function resumeSession(runId: string): Promise<SessionHandle> {
 
   const loader = new DefaultResourceLoader({
     cwd: join(DATA_DIR, "pi-agent"),
-    agentDir: AGENT_DIR,
+    agentDir: CONFIG_DIR,
     systemPromptOverride: () => SYSTEM_PROMPT,
   });
   await loader.reload();
 
   const handle = await createAgentSession({
     cwd: join(DATA_DIR, "pi-agent"),
-    agentDir: AGENT_DIR,
+    agentDir: CONFIG_DIR,
     modelRuntime,
     customTools: buildTools(runId),
     noTools: "builtin",
@@ -758,7 +761,7 @@ function piSdkVersion(): string {
   }
 }
 
-console.log(`[analysis] pi sidecar listening on :${PORT}, agentDir=${AGENT_DIR}`);
+console.log(`[analysis] pi sidecar listening on :${PORT}, configDir=${CONFIG_DIR}, sessionsDir=${AGENT_DIR}`);
 console.log(`[analysis] pi-coding-agent@${piSdkVersion()} 事件协议 v${EVENT_PROTOCOL_VERSION}`);
 
 startWatchdog();
