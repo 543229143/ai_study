@@ -44,16 +44,20 @@
     {
       "term": "借据号",
       "apps": [
-        "lcs",
         "lps"
       ]
     },
     {
       "term": "账户",
       "apps": [
-        "ams",
-        "lcs"
+        "ams"
       ]
+    }
+  ],
+  "system_terms": [
+    {
+      "term": "日志id",
+      "meaning": "ES 的 32 位十六进制 traceId（=requestNo），用于 ES 日志与跨服务链路检索"
     }
   ]
 }

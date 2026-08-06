@@ -44,6 +44,12 @@ DEFAULT_CONFIG: dict[str, Any] = {
         {"term": "借据号", "apps": ["lps"]},
         {"term": "账户", "apps": ["ams"]},
     ],
+    "system_terms": [
+        {
+            "term": "日志id",
+            "meaning": "ES 的 32 位十六进制 traceId（=requestNo），用于 ES 日志与跨服务链路检索",
+        },
+    ],
 }
 
 
@@ -107,6 +113,20 @@ def validate_config(cfg: dict[str, Any]) -> list[str]:
             for a in ta:
                 if a not in apps:
                     errors.append(f"术语 {term!r}: 应用 {a} 不在应用清单中")
+    sys_terms = cfg.get("system_terms")
+    if sys_terms is None:
+        errors.append("system_terms 必须是数组")
+        return errors
+    if not isinstance(sys_terms, list):
+        errors.append("system_terms 必须是数组")
+        return errors
+    for i, st in enumerate(sys_terms):
+        term = (st or {}).get("term") or ""
+        meaning = (st or {}).get("meaning") or ""
+        if not term:
+            errors.append(f"系统术语 #{i + 1}: 缺少术语名称")
+        if not meaning:
+            errors.append(f"系统术语 {term!r}: 缺少系统含义")
     return errors
 
 
@@ -184,7 +204,20 @@ def detect_hits(text: str) -> dict[str, Any]:
                 if a not in term_apps:
                     term_apps.append(a)
 
-    return {"explicit_app": explicit_app, "biz_hits": biz_hits, "term_apps": term_apps}
+    # 系统术语命中：用户词 → 系统含义（供 agent 理解，不映射应用）
+    sys_term_hits: list[dict[str, str]] = []
+    for item in cfg.get("system_terms") or []:
+        term = (item or {}).get("term") or ""
+        meaning = (item or {}).get("meaning") or ""
+        if term and meaning and term in t:
+            sys_term_hits.append({"term": term, "meaning": meaning})
+
+    return {
+        "explicit_app": explicit_app,
+        "biz_hits": biz_hits,
+        "term_apps": term_apps,
+        "sys_term_hits": sys_term_hits,
+    }
 
 
 def priority_apps(hits: dict[str, Any], default: str | None = None) -> list[str]:
@@ -217,6 +250,8 @@ def build_hint(hits: dict[str, Any]) -> str:
         text += f"业务键命中表字段: {', '.join(parts)}；"
     if hits.get("term_apps"):
         text += f"术语命中应用: {', '.join(hits['term_apps'])}；"
+    for st in hits.get("sys_term_hits") or []:
+        text += f"术语「{st['term']}」= {st['meaning']}；"
     if pri:
         text += f"优先排查应用 {','.join(pri[:3])} 的日志/代码（其他应用有线索也排查）"
     return text

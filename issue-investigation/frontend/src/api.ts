@@ -62,9 +62,15 @@ export interface TermConfig {
   apps: string[];
 }
 
+export interface SystemTermConfig {
+  term: string;
+  meaning: string;
+}
+
 export interface PlatformConfig {
   apps: Record<string, AppConfig>;
   terms: TermConfig[];
+  system_terms?: SystemTermConfig[];
 }
 
 export function getConfig(): Promise<PlatformConfig> {

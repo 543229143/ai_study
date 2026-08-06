@@ -113,6 +113,34 @@
           </p>
         </div>
       </el-tab-pane>
+
+      <!-- 系统术语 -->
+      <el-tab-pane label="系统术语" name="systerms">
+        <div class="term-list">
+          <div v-for="(st, i) in data.system_terms" :key="i" class="term-row sys-term-row">
+            <el-input v-model="st.term" size="small" class="term-name" placeholder="用户说的词，如 日志id" />
+            <el-input
+              v-model="st.meaning"
+              size="small"
+              type="textarea"
+              :rows="1"
+              class="sys-meaning"
+              placeholder="系统含义，如 ES 的 32 位 traceId（=requestNo）"
+            />
+            <el-button size="small" text type="danger" @click="data.system_terms.splice(i, 1)">删除</el-button>
+          </div>
+          <el-button size="small" text @click="data.system_terms.push({ term: '', meaning: '' })">
+            + 添加系统术语
+          </el-button>
+          <div class="term-save">
+            <el-button size="small" type="primary" :loading="savingSysTerms" @click="saveSysTerms">保存系统术语</el-button>
+            <span class="app-saved mono" v-if="sysTermsSaved">✓ 已保存</span>
+          </div>
+          <p class="term-tip">
+            用户输入命中系统术语时，注入「术语「X」= 系统含义」提示，让 AI 按系统语义理解（如"日志id"→ ES 32 位 traceId）；不改动用户原文。
+          </p>
+        </div>
+      </el-tab-pane>
     </el-tabs>
   </div>
 </template>
@@ -122,7 +150,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { getConfig, updateConfig, type PlatformConfig } from "../api";
 
 const tab = ref("apps");
-const data = reactive<PlatformConfig>({ apps: {}, terms: [] });
+const data = reactive<PlatformConfig>({ apps: {}, terms: [], system_terms: [] });
 const newAppName = ref("");
 const appFilter = ref("");
 const addingApp = ref(false);
@@ -130,6 +158,8 @@ const savingApp = ref("");
 const savedFlag = reactive<Record<string, boolean>>({});
 const savingTerms = ref(false);
 const termsSaved = ref(false);
+const savingSysTerms = ref(false);
+const sysTermsSaved = ref(false);
 const message = ref("");
 const messageType = ref<"success" | "error">("success");
 
@@ -154,6 +184,7 @@ async function persist(thenRefresh: boolean) {
     Object.keys(data.apps).forEach((k) => delete data.apps[k]);
     Object.assign(data.apps, fresh.apps);
     data.terms.splice(0, data.terms.length, ...fresh.terms);
+    data.system_terms.splice(0, data.system_terms.length, ...(fresh.system_terms || []));
   }
 }
 
@@ -224,11 +255,28 @@ async function saveTerms() {
   }
 }
 
+async function saveSysTerms() {
+  savingSysTerms.value = true;
+  message.value = "";
+  try {
+    await persist(true);
+    sysTermsSaved.value = true;
+    messageType.value = "success";
+    message.value = "系统术语已保存，即时生效";
+  } catch (err: any) {
+    messageType.value = "error";
+    message.value = `保存失败: ${err.message}`;
+  } finally {
+    savingSysTerms.value = false;
+  }
+}
+
 onMounted(async () => {
   try {
     const cfg = await getConfig();
     Object.assign(data.apps, cfg.apps);
     data.terms.splice(0, data.terms.length, ...cfg.terms);
+    data.system_terms.splice(0, data.system_terms.length, ...(cfg.system_terms || []));
   } catch (err: any) {
     messageType.value = "error";
     message.value = `加载配置失败: ${err.message}`;
@@ -399,6 +447,19 @@ onMounted(async () => {
 
 .term-apps {
   width: 420px;
+}
+
+.sys-term-row {
+  align-items: flex-start;
+}
+
+.sys-meaning {
+  flex: 1;
+}
+
+.sys-meaning .el-textarea__inner {
+  min-height: 32px !important;
+  resize: vertical;
 }
 
 .term-tip {
