@@ -155,3 +155,26 @@ def append_rejected(run_id: str, user_text: str, reply: str) -> None:
     entries.append({"role": "user", "text": user_text, "ts": now_ms})
     entries.append({"role": "assistant", "text": reply, "ts": now_ms + 1})
     write_json(rejected_path(run_id), entries)
+
+
+def satisfaction_path(run_id: str) -> Path:
+    return run_dir(run_id) / "satisfaction.json"
+
+
+def get_satisfaction(run_id: str) -> dict | None:
+    """读取满意度评价（run 级单次）。"""
+    data = read_json(satisfaction_path(run_id), None)
+    return data if isinstance(data, dict) else None
+
+
+def save_satisfaction(run_id: str, stars: int, reason: str, round_n: int, forced: bool = False) -> dict:
+    """保存满意度评价（覆盖写，同一 run 只保留最新一次）。"""
+    entry = {
+        "stars": stars,
+        "reason": reason,
+        "round": round_n,
+        "forced": forced,
+        "ts": time.time(),
+    }
+    write_json(satisfaction_path(run_id), entry)
+    return entry

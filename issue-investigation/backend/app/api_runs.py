@@ -3,8 +3,11 @@ from __future__ import annotations
 
 import re
 
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 
 from . import config
 from . import config_store, events, gate, pi_client, store
@@ -222,6 +225,34 @@ async def get_cost(run_id: str):
     except Exception:  # noqa: BLE001
         cost = 0.0
     return {"run_id": run_id, "cost": cost}
+
+
+class SatisfactionRequest(BaseModel):
+    stars: int
+    reason: Optional[str] = ""
+    forced: bool = False
+
+
+@router.post("/{run_id}/satisfaction")
+async def submit_satisfaction(run_id: str, req: SatisfactionRequest):
+    run = store.get_run(run_id)
+    if run is None:
+        raise HTTPException(404, "run not found")
+    if not 1 <= req.stars <= 5:
+        raise HTTPException(422, "stars 必须在 1-5")
+    entry = store.save_satisfaction(
+        run_id, req.stars, (req.reason or "").strip(),
+        (run.get("message_count") or 0), req.forced,
+    )
+    store.append_timeline(run_id, "satisfaction", f"满意度 {entry['stars']} 星")
+    return {"ok": True, "satisfaction": entry}
+
+
+@router.get("/{run_id}/satisfaction")
+async def get_satisfaction(run_id: str):
+    if store.get_run(run_id) is None:
+        raise HTTPException(404, "run not found")
+    return store.get_satisfaction(run_id) or {}
 
 
 @router.get("/{run_id}/messages")

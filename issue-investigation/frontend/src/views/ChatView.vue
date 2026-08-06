@@ -170,6 +170,28 @@
         </button>
       </div>
 
+      <!-- 本次排查满意度（结论轮后出现；已评价则不打扰） -->
+      <div class="rate-bar" v-if="showRate && !rated">
+        <span class="rate-label">本次排查满意度</span>
+        <el-rate v-model="rating" :max="5" class="rate-stars" @change="onRateChange" />
+        <div class="rate-reason" v-if="rating > 0 && rating < 5">
+          <el-input
+            v-model="rateReason"
+            type="textarea"
+            :rows="2"
+            size="small"
+            placeholder="请说明不满意的原因，帮助我们改进"
+          />
+          <el-button size="small" type="primary" :loading="rateSaving" @click="submitRate(false)">提交评价</el-button>
+        </div>
+        <span class="rate-note mono" v-else-if="rating === 5">满意，感谢反馈</span>
+      </div>
+      <div class="rate-bar rated" v-else-if="rated">
+        <span class="rate-label">满意度</span>
+        <el-rate :model-value="rated.stars" disabled :max="5" class="rate-stars" />
+        <span class="rate-note mono">{{ rated.stars }}/5</span>
+      </div>
+
       <!-- 结论缺失警告横幅（自动补救仍缺结论时提示） -->
       <div class="conclusion-warn" v-if="conclusionWarning">
         <span class="interrupt-icon">⚠️</span>
@@ -197,6 +219,42 @@
         <div class="input-hint" v-if="turnLimitReached">已达 10 轮沟通上限，点击「新建排查」开始新会话</div>
       </div>
     </main>
+
+    <!-- 强制满意度（10 轮结束） -->
+    <el-dialog
+      v-model="forceRateVisible"
+      :show-close="false"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+      width="420px"
+      class="force-rate-dialog"
+    >
+      <template #header>
+        <div class="force-rate-head">
+          <span class="interrupt-icon">⚠️</span>
+          <span>本次排查已达 10 轮上限，请评价本次排查满意度</span>
+        </div>
+      </template>
+      <div class="force-rate-body">
+        <el-rate v-model="rating" :max="5" class="rate-stars" @change="onRateChange" />
+        <el-input
+          v-if="rating > 0 && rating < 5"
+          v-model="rateReason"
+          type="textarea"
+          :rows="3"
+          size="small"
+          placeholder="请说明不满意的原因，帮助我们改进"
+        />
+        <el-button
+          size="small"
+          type="primary"
+          class="force-rate-submit"
+          :disabled="rating === 0"
+          :loading="rateSaving"
+          @click="submitRate(true)"
+        >提交评价</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -211,9 +269,12 @@ import {
   getModelName,
   getRun,
   getRunStatus,
+  getSatisfaction,
   listRuns,
   openStream,
   sendMessage,
+  submitSatisfaction,
+  type Satisfaction,
   type Run,
 } from "../api";
 
@@ -262,6 +323,51 @@ const stopping = ref(false);
 const aborted = ref(false);
 const interrupted = ref(false);
 const conclusionWarning = ref("");
+
+// ---- 满意度评价（run 级单次；10 轮结束强制） ----
+const showRate = ref(false);
+const forceRateVisible = ref(false);
+const rating = ref(0);
+const rateReason = ref("");
+const rateSaving = ref(false);
+const rated = ref<null | { stars: number; reason?: string; forced?: boolean }>(null);
+
+function onRateChange(v: number) {
+  if (v < 5) rateReason.value = ""; // 换星后重置原因输入
+}
+
+/** done 后判定是否弹出满意度：已有结论回答（本轮文本足够长）且尚未评价。 */
+function maybeShowRate() {
+  if (!run.value || rated.value) return;
+  const msgs = messages.value;
+  const lastAi = [...msgs].reverse().find((m: any) => m.role === "assistant");
+  const hasConclusion = !!lastAi && (lastAi.text || "").trim().length >= 120;
+  const exhausted = (run.value.turn_limit - run.value.message_count) <= 0;
+  if (exhausted) {
+    forceRateVisible.value = true;
+    return;
+  }
+  if (hasConclusion) showRate.value = true;
+}
+
+async function submitRate(forced = false) {
+  if (!run.value || rating.value < 1) return;
+  rateSaving.value = true;
+  try {
+    const r = await submitSatisfaction(run.value.id, {
+      stars: rating.value,
+      reason: rating.value < 5 ? rateReason.value.trim() : "",
+      forced,
+    });
+    rated.value = { stars: r.satisfaction.stars, reason: r.satisfaction.reason, forced: r.satisfaction.forced };
+    showRate.value = false;
+    forceRateVisible.value = false;
+  } catch (err: any) {
+    alert(`提交评价失败: ${err.message}`);
+  } finally {
+    rateSaving.value = false;
+  }
+}
 const resuming = ref(false);
 const streamTokens = ref(0);
 const streamSpeed = ref(0);
@@ -457,6 +563,11 @@ function newSession() {
   streamTokens.value = 0;
   streamSpeed.value = 0;
   draft.value = "";
+  showRate.value = false;
+  forceRateVisible.value = false;
+  rated.value = null;
+  rating.value = 0;
+  rateReason.value = "";
 }
 
 async function openSession(s: Run) {
@@ -466,6 +577,7 @@ async function openSession(s: Run) {
   env.value = s.env;
   turnLimitReached.value = (s.turn_limit - s.message_count) <= 0;
   await syncFromServer();
+  await loadSatisfaction(s.id);
   // 历史中被用户停止的排查：补一条停止标记
   if ((s.timeline || []).some((t) => t.event === "aborted")) {
     messages.value.push({
@@ -478,6 +590,31 @@ async function openSession(s: Run) {
   connectStream(s.id);
   await checkInterrupted();
   scrollBottom();
+}
+
+/** 加载满意度状态：已评价显示结果；10 轮耗尽且未评价则强制弹窗。 */
+async function loadSatisfaction(id: string) {
+  rating.value = 0;
+  rateReason.value = "";
+  showRate.value = false;
+  forceRateVisible.value = false;
+  try {
+    const s = await getSatisfaction(id);
+    if (s && typeof s.stars === "number") {
+      rated.value = { stars: s.stars, reason: s.reason, forced: s.forced };
+      return;
+    }
+  } catch {
+    /* 评价接口失败不阻塞会话 */
+  }
+  rated.value = null;
+  if (run.value && (run.value.turn_limit - run.value.message_count) <= 0) {
+    forceRateVisible.value = true; // 已耗尽且未评价 → 强制
+    return;
+  }
+  // 已完成且有结论的历史会话：给出非强制评价入口
+  const lastAi = [...messages.value].reverse().find((m: any) => m.role === "assistant");
+  if (lastAi && (lastAi.text || "").trim().length >= 120) showRate.value = true;
 }
 
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -611,6 +748,7 @@ async function handleEvent(e: any) {
       running.value = false;
       turnLimitReached.value = true;
       pushMsg({ role: "assistant", text: e.data.message });
+      if (!rated.value) forceRateVisible.value = true; // 10 轮结束强制满意度
       break;
     case "user_aborted":
       flushStream();
@@ -623,7 +761,8 @@ async function handleEvent(e: any) {
       conclusionWarning.value = e.data?.warning || "";
       flushStream();
       await refreshTurn();
-      refreshRun();
+      await refreshRun();
+      maybeShowRate();
       break;
     case "error":
       running.value = false;
@@ -729,8 +868,7 @@ async function send() {
 onMounted(async () => {
   loadSessions();
   modelName.value = await getModelName();
-});
-onBeforeUnmount(disconnect);
+});onBeforeUnmount(disconnect);
 </script>
 
 <style scoped>
@@ -1445,6 +1583,68 @@ onBeforeUnmount(disconnect);
   border-radius: 8px;
   font-size: 12.5px;
   color: var(--warn);
+}
+
+.rate-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 22px 0;
+  padding: 9px 14px;
+  background: rgba(52, 211, 153, 0.06);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  border-radius: 8px;
+}
+
+.rate-bar.rated {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--line-2);
+}
+
+.rate-label {
+  font-size: 12.5px;
+  color: var(--ink-dim);
+  flex: 0 0 auto;
+}
+
+.rate-stars {
+  flex: 0 0 auto;
+}
+
+.rate-reason {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.rate-note {
+  font-size: 12px;
+  color: var(--ok);
+}
+
+.force-rate-dialog {
+  --el-dialog-bg-color: var(--bg-2);
+}
+
+.force-rate-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.force-rate-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.force-rate-submit {
+  align-self: flex-end;
 }
 
 .resume-btn {

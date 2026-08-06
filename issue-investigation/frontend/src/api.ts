@@ -100,6 +100,28 @@ export async function getCost(id: string): Promise<number> {
   }
 }
 
+export interface Satisfaction {
+  stars: number;
+  reason: string;
+  round: number;
+  forced: boolean;
+  ts: number;
+}
+
+export function getSatisfaction(id: string): Promise<Satisfaction | Record<string, never>> {
+  return api(`/runs/${id}/satisfaction`);
+}
+
+export function submitSatisfaction(
+  id: string,
+  payload: { stars: number; reason?: string; forced?: boolean },
+): Promise<{ ok: boolean; satisfaction: Satisfaction }> {
+  return api(`/runs/${id}/satisfaction`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function sendMessage(id: string, text: string, env: string, resume = false) {
   return api(`/runs/${id}/messages`, {
     method: "POST",
