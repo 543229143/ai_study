@@ -904,14 +904,14 @@ async function handleEvent(e: any) {
       break;
     case "text_delta":
       if (aborted.value) break;
-      // 丢弃模式：模型回显 prompt（[当前排查环境…]/用户消息: [识别提示…]/原文）时整段丢弃，
+      // 丢弃模式：模型回显 prompt（[当前排查环境…]/用户消息: [识别提示…]/原文/补救系统提示）时整段丢弃，
       // 直到段边界（tool_start/tool_end/message_end）重置；完成后 refreshTurn 用分组结果兜底
       // 注：回显段是模型真实输出，消耗 token——丢弃文本同样计入估算，避免"token 停住"假象
       if (echoDrop) {
         streamTokens.value += estimateTokens(e.data.text);
         break;
       }
-      if (/用户消息:|\[当前排查环境:|\[识别提示:/.test(e.data.text)) {
+      if (/用户消息:|\[当前排查环境:|\[识别提示:|系统提示：/.test(e.data.text)) {
         echoDrop = true;
         streamTokens.value += estimateTokens(e.data.text);
         break;

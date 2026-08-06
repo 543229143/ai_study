@@ -133,3 +133,10 @@ test("置信度词加粗（**置信度**：高）→ 通过", () => {
   const r = validateConclusion("**置信度**：高。拒绝原因直接来自机构回调明文。");
   expect(r.ok).toBe(true);
 });
+
+test("未定位+待补线索（未能继续定位/缺以下线索/置信度：无法评估）→ 通过", () => {
+  const r = validateConclusion(
+    "## 待补线索\n当前未能继续定位，缺以下线索：日志时间点。置信度：无法评估（缺用户意图澄清）。",
+  );
+  expect(r.ok).toBe(true);
+});
