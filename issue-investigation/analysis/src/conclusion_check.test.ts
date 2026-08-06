@@ -123,3 +123,13 @@ test("文字置信度（置信度：高）→ 视为已给出置信度，不误�
 test("文字置信度（较高/低）→ 通过", () => {
   expect(validateConclusion("## 结论\n根因：XX。置信度较低，证据有限。").ok).toBe(true);
 });
+
+test("文字置信度加粗（**高**）→ 通过", () => {
+  const r = validateConclusion("## 置信度\n\n**高**。拒绝原因直接来自机构回调明文。");
+  expect(r.ok).toBe(true);
+});
+
+test("置信度词加粗（**置信度**：高）→ 通过", () => {
+  const r = validateConclusion("**置信度**：高。拒绝原因直接来自机构回调明文。");
+  expect(r.ok).toBe(true);
+});
