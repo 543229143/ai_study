@@ -565,14 +565,16 @@ function groupMessages(entries: any[]): any[] {
   // 第二遍：按轮次分组
   const out: any[] = [];
   let cur: any = null;
+  let remedyPending = false; // 上一条 user 是补救 prompt → 下一 assistant 轮合并进当前轮（不另起一条）
 
   for (const m of entries) {
     const role = m.role;
     if (role === "toolResult") continue;
     if (role === "user") {
       const text = stripUserPrefix(extractText(m));
-      // 过滤平台补救轮系统提示（REMEDY_PROMPT 经 followUp/prompt 存为 user 消息，不应展示）
+      // 补救轮系统提示（REMEDY_PROMPT）：不展示，且标记下一 assistant 轮为补救内容（合并进当前轮）
       if (text.includes("结论完整性检查")) {
+        remedyPending = true;
         continue;
       }
       // 仅去重紧邻的重复（自动续跑重发同一消息）；隔了 assistant 回复的相同提问保留
@@ -607,6 +609,31 @@ function groupMessages(entries: any[]): any[] {
           error: !!r.isError,
         };
       });
+
+    // 补救轮：不另起一条消息，合并进上一 assistant 轮（半截主答进中间过程，补救结论作为最终 text）
+    if (remedyPending) {
+      remedyPending = false;
+      const prev = [...out].reverse().find((x: any) => x.role === "assistant");
+      if (prev) {
+        if (text) {
+          if (prev.text) prev.intermediate.push(prev.text);
+          prev.text = text;
+        }
+        if (thinking) prev.thinking += (prev.thinking ? "\n\n" : "") + thinking;
+        if (calls.length) prev.tool_calls.push(...calls);
+        prev.ts = m.timestamp;
+        if (m.model) prev.model = m.model;
+        if (m.usage) {
+          prev.usage = {
+            input: prev.usage.input + (m.usage.input ?? 0),
+            output: prev.usage.output + (m.usage.output ?? 0),
+            cacheRead: prev.usage.cacheRead + (m.usage.cacheRead ?? 0),
+            cost: prev.usage.cost + (m.usage.cost?.total ?? 0),
+          };
+        }
+        continue;
+      }
+    }
 
     if (!cur) {
       cur = {

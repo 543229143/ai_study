@@ -300,6 +300,7 @@ function groupRows(rows: any[]): any[] {
   const out: any[] = [];
   let cur: any = null;
   let turnCost = 0;
+  let remedyPending = false; // 上一条 user 是补救 prompt → 下一 assistant 轮合并进当前轮（不另起一条）
 
   for (const row of rows) {
     const info = row.info;
@@ -313,8 +314,11 @@ function groupRows(rows: any[]): any[] {
         parts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n"),
       );
       const last = out[out.length - 1];
-      // 过滤平台补救轮系统提示（REMEDY_PROMPT 经 promptAsync 存为 user 消息，不应展示）
-      if (text.includes("结论完整性检查")) continue;
+      // 补救轮系统提示（REMEDY_PROMPT）：不展示，且标记下一 assistant 轮为补救内容（合并进当前轮）
+      if (text.includes("结论完整性检查")) {
+        remedyPending = true;
+        continue;
+      }
       // 仅去重紧邻的重复（自动续跑重发同一消息）；隔了 assistant 回复的相同提问保留
       if (last && last.role === "user" && last.text === text) continue;
       out.push({ role: "user", text, ts: info.time?.created ?? Date.now() });
@@ -345,6 +349,29 @@ function groupRows(rows: any[]): any[] {
       },
       { input: 0, output: 0, cacheRead: 0 },
     );
+
+    // 补救轮：不另起一条消息，合并进上一 assistant 轮（半截主答进中间过程，补救结论作为最终 text）
+    if (remedyPending) {
+      remedyPending = false;
+      const prev = [...out].reverse().find((x: any) => x.role === "assistant");
+      if (prev) {
+        if (prev.text) prev.intermediate.push(prev.text);
+        prev.text = texts.join("\n");
+        if (reasoning.length) prev.thinking += (prev.thinking ? "\n\n" : "") + reasoning.join("\n");
+        if (calls.length) prev.tool_calls.push(...calls);
+        prev.ts = info.time?.completed ?? info.time?.created ?? prev.ts;
+        if (info.modelID) prev.model = `${info.providerID}/${info.modelID}`;
+        prev.usage = {
+          input: prev.usage.input + tokens.input,
+          output: prev.usage.output + tokens.output,
+          cacheRead: prev.usage.cacheRead + tokens.cacheRead,
+          cost: prev.usage.cost + turnCost,
+        };
+        prev.incomplete = !info.time?.completed || !!info.error;
+        turnCost = 0;
+        continue;
+      }
+    }
 
     if (!cur) {
       cur = {
