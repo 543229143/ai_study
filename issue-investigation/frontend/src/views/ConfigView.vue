@@ -20,8 +20,18 @@
     <el-tabs v-model="tab" class="cfg-tabs">
       <!-- 应用配置 -->
       <el-tab-pane label="应用" name="apps">
+        <div class="app-toolbar">
+          <el-input
+            v-model="appFilter"
+            size="small"
+            clearable
+            class="app-filter"
+            placeholder="按应用名查询，如 lps"
+          />
+          <span class="app-count mono">{{ filteredApps.length }}/{{ Object.keys(data.apps).length }} 应用</span>
+        </div>
         <div class="app-list">
-          <div v-for="(cfg, name) in data.apps" :key="name" class="app-card">
+          <div v-for="([name, cfg]) in filteredApps" :key="name" class="app-card">
             <div class="app-card-head">
               <span class="app-name mono">{{ name }}</span>
               <span class="app-db">
@@ -96,11 +106,16 @@ import { getConfig, updateConfig, type PlatformConfig } from "../api";
 const tab = ref("apps");
 const data = reactive<PlatformConfig>({ apps: {}, terms: [] });
 const newAppName = ref("");
+const appFilter = ref("");
 const saving = ref(false);
 const message = ref("");
 const messageType = ref<"success" | "error">("success");
 
 const appNames = computed(() => Object.keys(data.apps));
+const filteredApps = computed(() => {
+  const kw = appFilter.value.trim().toLowerCase();
+  return Object.entries(data.apps).filter(([name]) => !kw || name.includes(kw));
+});
 
 function clone(): PlatformConfig {
   return JSON.parse(JSON.stringify(data));
@@ -192,6 +207,23 @@ onMounted(async () => {
 
 .cfg-tabs {
   flex: 1;
+}
+
+.app-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  max-width: 860px;
+}
+
+.app-filter {
+  width: 260px;
+}
+
+.app-count {
+  font-size: 12px;
+  color: var(--ink-faint);
 }
 
 .app-list {
