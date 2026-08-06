@@ -51,6 +51,8 @@ def create_run(meta: dict) -> dict:
         "phenomenon": meta.get("phenomenon") or "",
         "scope": meta.get("scope", "primary_only"),
         "custom_apps": meta.get("custom_apps") or [],
+        "agent": meta.get("agent") or "investigation",
+        "engine": meta.get("engine") or "opencode",
         "biz_hits": meta.get("biz_hits") or [],
         "priority_apps": meta.get("priority_apps") or [],
         "status": "created",
@@ -96,13 +98,18 @@ def append_timeline(run_id: str, event: str, detail: str = "") -> dict:
     return run
 
 
-def list_runs() -> list[dict]:
+def run_engine(run: dict) -> str:
+    """run 使用的引擎（默认 opencode）。"""
+    return run.get("engine") or "opencode"
+
+
+def list_runs(engine: str | None = None) -> list[dict]:
     out = []
     for d in sorted(config.RUNS_DIR.iterdir(), reverse=True):
         if not d.is_dir() or not _RUN_ID_RE.match(d.name):
             continue
         run = read_json(d / "run.json")
-        if run:
+        if run and (engine is None or run_engine(run) == engine):
             out.append(run)
     return out
 

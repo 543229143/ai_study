@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "investigation": {
+      "description": "问题排查专用 Agent：只允许调用平台 6 个排查工具，禁止 bash/文件读写等其他工具",
+      "mode": "primary",
+      "model": "opencode/deepseek-v4-flash-free",
+      "prompt": "{file:../prompt.md}",
+      "temperature": 0.1,
+      "permission": {
+        "*": "deny",
+        "collect_logs": "allow",
+        "scan_code": "allow",
+        "nacos_query": "allow",
+        "db_query": "allow",
+        "run_investigation": "allow",
+        "read_artifact": "allow"
+      }
+    }
+  }
+}

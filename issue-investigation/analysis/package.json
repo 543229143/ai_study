@@ -4,9 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "bun run src/index.ts"
+    "start": "bun run src/opencode/index.ts",
+    "start:pi": "bun run src/pi/index.ts"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.83.0"
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@opencode-ai/sdk": "1.18.14"
   }
 }

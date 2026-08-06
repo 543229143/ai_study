@@ -3,6 +3,14 @@
     <div class="history-head">
       <el-button text size="small" @click="$router.back()">← 返回</el-button>
       <span class="h-title">历史排查记录</span>
+      <select
+        class="agent-select mono"
+        :value="agent"
+        title="按 Agent 过滤"
+        @change="agent = ($event.target as HTMLSelectElement).value; load()"
+      >
+        <option v-for="a in agents" :key="a" :value="a">{{ agentLabel(a) }}</option>
+      </select>
       <span class="h-sub mono">{{ runs.length }} SESSIONS</span>
       <el-button size="small" text @click="load" :loading="loading">刷新</el-button>
     </div>
@@ -34,11 +42,18 @@
 
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
-import { listRuns, useGoDetail, type Run } from "../api";
+import { getAgents, listRuns, useGoDetail, type Run } from "../api";
 
 const runs = ref<Run[]>([]);
 const loading = ref(false);
+const agents = ref<string[]>(["opencode", "pi"]);
+const agent = ref("opencode");
 const go = useGoDetail();
+
+/** agent 显示名：pi 显示为数学符号 π。 */
+function agentLabel(a: string): string {
+  return a === "pi" ? "π" : a;
+}
 
 function fmt(ts: number): string {
   const d = new Date(ts * 1000);
@@ -49,13 +64,22 @@ function fmt(ts: number): string {
 async function load() {
   loading.value = true;
   try {
-    runs.value = await listRuns();
+    runs.value = await listRuns(agent.value);
   } finally {
     loading.value = false;
   }
 }
 
-onMounted(load);
+onMounted(async () => {
+  try {
+    const r = await getAgents();
+    if (r.engines?.length) agents.value = r.engines;
+    if (!agents.value.includes(agent.value)) agent.value = agents.value[0];
+  } catch {
+    /* 默认 opencode */
+  }
+  load();
+});
 </script>
 
 <style scoped>

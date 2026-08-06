@@ -55,14 +55,16 @@ body::before {
 }
 
 .el-input__wrapper,
-.el-textarea__inner {
+.el-textarea__inner,
+.el-select__wrapper {
   background: var(--bg-2) !important;
   border-radius: 8px !important;
   box-shadow: 0 0 0 1px var(--line) inset !important;
 }
 
 .el-input__wrapper.is-focus,
-.el-textarea__inner:focus {
+.el-textarea__inner:focus,
+.el-select__wrapper.is-focused {
   box-shadow: 0 0 0 1px var(--accent) inset !important;
 }
 

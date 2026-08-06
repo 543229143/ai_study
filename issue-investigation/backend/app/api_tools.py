@@ -1,4 +1,4 @@
-"""工具端点（pi sidecar 回调执行内核）+ 事件接收端点。"""
+"""工具端点（agent sidecar 回调执行内核）+ 事件接收端点。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException
@@ -69,7 +69,7 @@ async def _run_in_executor(tool, run_id: str, seq: int, params: dict):
 
 @router.post("/events/{run_id}")
 async def post_event(run_id: str, body: dict, x_tool_token: str | None = Header(default=None)):
-    """pi sidecar 推送会话事件（支持单条或批量 {events: [...]}）。"""
+    """agent sidecar 推送会话事件（支持单条或批量 {events: [...]}）。"""
     _check_token(x_tool_token)
     batch = body.get("events")
     if isinstance(batch, list):
@@ -97,7 +97,7 @@ async def _snapshot_conclusion(run_id: str) -> None:
     import re
     import time
 
-    from . import pi_client
+    from . import agent_engine as sidecar
 
     def clean_question(text: str) -> str:
         """去掉注入前缀（[识别提示:…] / [当前排查环境:…] / 用户消息:），还原原始问题。"""
@@ -110,7 +110,7 @@ async def _snapshot_conclusion(run_id: str) -> None:
         run = store.get_run(run_id)
         if run is None:
             return
-        msgs = await pi_client.get_messages(run_id)
+        msgs = await sidecar.get_messages(store.run_engine(run), run_id)
         first_user = next((m.get("text", "") for m in msgs if m.get("role") == "user"), "")
         last_ai = next(
             (m for m in reversed(msgs) if m.get("role") == "assistant" and not m.get("incomplete")),

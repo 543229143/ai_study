@@ -19,7 +19,12 @@ KERNEL_REPO_ROOT = Path(
     os.environ.get("INV_KERNEL_REPO_ROOT") or WORKSPACE_ROOT / "lcs"
 )
 
-PI_BASE_URL = os.environ.get("INV_PI_BASE_URL", "http://127.0.0.1:8700")
+# Agent 引擎：opencode（默认）| pi（双引擎共存）
+AGENT_ENGINE = os.environ.get("INV_AGENT_ENGINE", "opencode")
+ENGINES = ["opencode", "pi"]
+
+OPENCODE_BASE_URL = os.environ.get("INV_OPENCODE_BASE_URL") or "http://127.0.0.1:8700"
+PI_BASE_URL = os.environ.get("INV_PI_BASE_URL") or "http://127.0.0.1:8701"
 PI_TOOL_TOKEN = os.environ.get("INV_PI_TOOL_TOKEN", "local-dev-token")
 
 # 意图门禁 LLM 通道（opencode-go，OpenAI 兼容）
@@ -27,21 +32,31 @@ LLM_BASE_URL = os.environ.get(
     "INV_LLM_BASE_URL", "https://opencode.ai/zen/go/v1"
 )
 LLM_MODEL = os.environ.get("INV_LLM_MODEL", "deepseek-v4-flash")
-# LLM 配置目录（项目根 config/pi-agent/，独立于 ~/.pi/agent 与 data/）
+# LLM 配置目录（项目根 config/pi/，独立于 ~/.pi/agent 与 data/）
 PI_AGENT_DIR = Path(
-    os.environ.get("INV_PI_CONFIG_DIR") or PROJECT_ROOT.parent / "config" / "pi-agent"
+    os.environ.get("INV_PI_CONFIG_DIR") or PROJECT_ROOT.parent / "config" / "pi"
 )
+
+# opencode 配置（agent 定义）：config/opencode/opencode.json
+OPENCODE_CONFIG = Path(
+    os.environ.get("INV_OPENCODE_CONFIG") or PROJECT_ROOT.parent / "config" / "opencode" / "opencode.json"
+)
+
+# opencode 内置 agent（平台不暴露，避免绕开工具白名单）
+OPENCODE_BUILTIN_AGENTS = {
+    "build", "plan", "general", "explore", "scout", "compaction", "title", "summary",
+}
 
 TURN_LIMIT = 10
 
 RUNS_DIR = DATA_DIR / "runs"
-PI_SESSIONS_DIR = DATA_DIR / "pi-sessions"
+PI_SESSIONS_DIR = DATA_DIR / "pi" / "sessions"
 for _d in (RUNS_DIR, PI_SESSIONS_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 
 def load_llm_api_key() -> str:
-    """读取 LLM key：环境变量优先，其次 config/pi-agent/auth.json 的 opencode-go。"""
+    """读取 LLM key：环境变量优先，其次 config/pi/auth.json 的 opencode-go。"""
     env_key = os.environ.get("INV_LLM_API_KEY", "").strip()
     if env_key:
         return env_key

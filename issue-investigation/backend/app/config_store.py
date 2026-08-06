@@ -94,6 +94,11 @@ def validate_config(cfg: dict[str, Any]) -> list[str]:
                 re.compile(pat)
             except re.error as exc:
                 errors.append(f"应用 {name}: 业务键规则 #{i + 1} 正则非法: {exc}")
+            if "\\\\" in pat:
+                errors.append(
+                    f"应用 {name}: 业务键规则 #{i + 1} 疑似双重转义（{pat!r}）："
+                    "应写单反斜杠，如 \\d 匹配数字，而不是 \\\\d"
+                )
             for k in ("table", "field"):
                 v = (rule or {}).get(k) or ""
                 if v and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(v)):

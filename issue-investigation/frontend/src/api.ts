@@ -34,6 +34,8 @@ export interface Run {
   phenomenon: string;
   scope: string;
   status: string;
+  agent: string;
+  engine: string;
   message_count: number;
   turn_limit: number;
   created_at: number;
@@ -85,8 +87,12 @@ export function createRun(payload: Record<string, unknown>): Promise<Run> {
   return api("/runs", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export function listRuns(): Promise<Run[]> {
-  return api("/runs");
+export function listRuns(engine?: string): Promise<Run[]> {
+  return api(engine ? `/runs?engine=${encodeURIComponent(engine)}` : "/runs");
+}
+
+export function getAgents(): Promise<{ engine: string; engines: string[] }> {
+  return api("/runs/agents");
 }
 
 export function getRun(id: string): Promise<Run> {

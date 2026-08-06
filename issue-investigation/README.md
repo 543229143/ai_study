@@ -1,33 +1,66 @@
 # 问题排查平台
 
-基于 pi-agent 内核 + 排查技能内核的 Web 化问题排查工具（dev/sit 专用）。
+基于 opencode 内核 + 排查技能内核的 Web 化问题排查工具（dev/sit 专用）。
 
 ## 架构
 
 ```
-浏览器 (Vue3 + Element Plus)  ──WS/HTTP──▶  FastAPI 后端 :8600  ──HTTP──▶  Pi 分析服务 :8700
-                                                   │                          │
-                                             排查内核 (kernel/)          pi-agent-core SDK
-                                             ES/MySQL/Nacos/源码           LLM (opencode-go)
+浏览器 (Vue3 + Element Plus)  ──WS/HTTP──▶  FastAPI 后端 :8600  ──HTTP──▶  分析服务 :8700 ──SDK──▶ opencode serve :14100
+                                                    │                          │
+                                              排查内核 (kernel/)          opencode 自定义工具 (6 个)
+                                              ES/MySQL/Nacos/源码           LLM (opencode/deepseek-v4-flash-free)
 ```
 
-- **backend/**：FastAPI + 排查内核（kernel/，复用 issue-investigation skill 脚本）
-- **analysis/**：Pi sidecar（Bun + `@earendil-works/pi-coding-agent@0.83.0`）
+- **backend/**：FastAPI + 排查内核（kernel/，复用 issue-investigation skill 脚本）；`agent_engine.py` 选择 Agent 引擎客户端（默认 opencode，pi/opencode 双引擎共存）
+- **analysis/**：分析 sidecar（Bun + `@opencode-ai/sdk`，spawn opencode serve 子进程，数据隔离到 `data/opencode/`）；opencode 相关代码在 `src/opencode/`（client.ts / events.ts）
+- **config/opencode/**：opencode 统一配置目录——`opencode.json`（agent/权限/模型）+ `.opencode/tools/`（6 个 Custom Tools，回调分析服务 → 后端内核，agent 只能调这些工具）+ 公共提示词 `config/prompt.md`（opencode 与 pi 共用）
 - **frontend/**：Vue3 + Element Plus 前端
-- **data/**：运行时数据（会话 JSONL、产物），gitignore
+- **data/**：运行时数据（会话映射、opencode DB、产物），gitignore
 
-## 启动（本机三进程）
+## 目录结构
+
+```
+issue-investigation/
+├── backend/                  # FastAPI：API/WS 桥、意图门禁、工具端点、排查内核调用
+│   └── app/
+│       ├── agent_engine.py   # Agent 引擎选择器（INV_AGENT_ENGINE，默认 opencode）
+│       ├── opencode_client.py / pi_client.py   # 引擎客户端（同一套 sidecar HTTP 契约，分文件）
+│       └── kernel/           # 排查内核（复用 skill 脚本）
+├── analysis/                 # 分析 sidecar（Bun）
+│   ├── src/opencode/         # opencode 引擎：index.ts（HTTP/编排）+ client.ts（serve/会话映射）+ events.ts（事件协议）
+│   ├── src/pi/               # pi 引擎（双引擎共存，端口 8701）
+│   └── src/conclusion_check.ts   # 结论完整性校验（两引擎共用）
+├── config/                   # 统一配置（入库）
+│   ├── opencode/             # opencode：opencode.json（agent/权限/模型）+ .opencode/tools/（6 工具）
+│   ├── pi/                   # pi 配置（双引擎共存）
+│   └── prompt.md             # 公共系统提示词（两引擎共用）
+├── frontend/                 # Vue3 + Element Plus
+├── data/                     # 运行时（gitignore）：runs/{run_id}/ 产物、opencode/opencode.db、pi/sessions/ 映射
+├── dev.sh                    # 一键启动四进程
+└── opencode 相关代码/配置均以「引擎目录」划分：见名知 agent（opencode ↔ pi 不混放）
+```
+
+## 启动
 
 ```bash
-# 1. 后端（首次自动装依赖；--host 0.0.0.0 支持局域网共享访问）
+# 一键启动：backend(8600) + opencode sidecar(8700) + pi sidecar(8701) + frontend(5178)
+./dev.sh
+
+# 引擎选择（默认 opencode，双引擎共存）：INV_AGENT_ENGINE=pi ./dev.sh
+```
+
+手动启动：
+
+```bash
+# 1. 后端
 cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8600
+INV_AGENT_ENGINE=opencode .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8600
 
-# 2. Pi 分析服务（LLM 配置在 config/pi-agent/，首次部署需准备 4 个配置文件）
+# 2. 分析服务（自动拉起 opencode serve :14100；LLM key 用全局 ~/.local/share/opencode/auth.json）
 cd analysis
 bun install
-bun run src/index.ts
+bun run src/opencode/index.ts        # opencode 引擎（默认）；pi 引擎：bun run src/pi/index.ts
 
 # 3. 前端（WS 直连后端，见 frontend/.env.development 的 VITE_WS_BASE）
 cd frontend
@@ -35,21 +68,13 @@ npm install
 npm run dev          # http://localhost:5178
 ```
 
-或一键：`./dev.sh`（启动前自动清理三端口残留进程）。
+## 配置（LLM 与 Agent）
 
-## 配置目录（config/，不入库）
-
-```
-config/
-├── pi-agent/                 # LLM 配置（sidecar 与门禁共用；缺失时 sidecar 启动 fail-fast）
-│   ├── auth.json             # opencode-go.key（平台独立 key，不依赖 ~/.pi/agent）
-│   ├── settings.json         # defaultProvider/defaultModel
-│   ├── models.json
-│   └── models-store.json
-└── apps.json                 # 平台应用配置（配置页 /config 读写）
-```
-
-首次部署：准备上述 4 个 LLM 配置文件（可参考原 `~/.pi/agent/` 对应文件，key 换成平台独立 key）；`apps.json` 缺失时自动生成默认模板。
+- **LLM 通道**：opencode 全局 auth（`~/.local/share/opencode/auth.json`，provider `opencode-go`）；模型/agent 在 `config/opencode/opencode.json` 配置
+- **Agent 权限**：`config/opencode/opencode.json` 的 `investigation` agent 设置 `"*": "deny"` + 6 工具 allow——模型无法执行 bash/文件读写，只能调排查工具
+- **当前模型**：`opencode/deepseek-v4-flash-free`（免费档，成本 0）。注意免费档偶发空回复（最后一步无输出），平台结论校验会自动补救一轮；仍缺则警告横幅提示。如需更稳定可改回 `opencode-go/deepseek-v4-flash`（付费）
+- **Agent 切换**：页面顶栏 agent 下拉（`/runs/agents` 读取 opencode.json 定义的 agent，排除 opencode 内置）；切换后左侧会话列表与历史页只显示该 agent 的会话
+- 历史 `config/pi/` 仅保留给后端门禁读 key（`backend/app/config.py`），sidecar 不再使用
 
 ## 功能
 
@@ -88,14 +113,16 @@ config/
 |---|---|---|
 | `INV_WORKSPACE_ROOT` | `/Users/zhaoxin/code/inner` | 4 业务仓父目录（代码扫描） |
 | `INV_DATA_DIR` | 项目下 `data/` | 产物根目录 |
-| `INV_PI_BASE_URL` | `http://127.0.0.1:8700` | Pi sidecar 地址 |
+| `INV_AGENT_ENGINE` | `opencode` | Agent 引擎：`opencode` \| `pi`（双引擎共存） |
+| `INV_PI_BASE_URL` | `8700`（opencode 引擎）/ `8701`（pi 引擎） | 分析服务地址 |
 | `INV_PI_TOOL_TOKEN` | `local-dev-token` | 工具端点鉴权 |
 | `INV_LLM_MODEL` | `deepseek-v4-flash` | 门禁/分析模型 |
 | `INV_IDLE_TIMEOUT_MS` | `180000` | 排查无事件看护超时（自动停止防卡死） |
 | `INV_BACKEND_URL`（analysis 侧） | `http://127.0.0.1:8600` | sidecar 回调后端地址 |
+| `INV_OPENCODE_PORT`（analysis 侧） | `14100` | opencode serve 端口（数据隔离到 `data/opencode/opencode.db`） |
 | `VITE_WS_BASE`（frontend/.env.development） | `127.0.0.1:8600` | 浏览器 WS 直连后端地址（局域网共享时改本机 IP） |
 
-LLM key 读 `config/pi-agent/auth.json`（provider: opencode-go，独立于本机 ~/.pi/agent）。
+LLM key 读全局 `~/.local/share/opencode/auth.json`（provider: opencode-go）。
 
 ## 应用/术语配置（`/config` 页面）
 
@@ -121,43 +148,48 @@ LLM key 读 `config/pi-agent/auth.json`（provider: opencode-go，独立于本�
 - **扫描优先级**：命中应用在 collect_logs/scan_code 的应用清单中排序在前（优先），其余配置应用同样扫描
 - **新增应用边界**：新应用除在配置页添加外，需同步 `backend/kernel/references/app-catalog.json` 注册基础元数据（primary_schema/container/nacos），否则内核校验失败
 
-## Pi 升级 SOP
+## opencode 升级 SOP
 
-Pi（`@earendil-works/pi-coding-agent`）周更频繁，升级前必须按此流程执行。
+opencode（`@opencode-ai/sdk` + `opencode serve` 二进制）迭代频繁，升级前必须按此流程执行。
 
 ### 依赖面（升级必核对）
 
 | 依赖项 | 位置 | 风险 |
 |---|---|---|
-| `createAgentSession` / `defineTool` / `DefaultResourceLoader` / `ModelRuntime` | `analysis/src/index.ts` 入口 | 编译期报错可发现 |
-| `SessionManager.create/open` + 会话 JSONL 格式 | 会话持久化（`data/pi-agent/sessions/`） | 有内置迁移，但迁移失败会丢历史 |
-| **事件字段名**（message_update / text_delta / thinking_delta / tool_execution_start / tool_execution_end / message_end / agent_end） | `analysis/src/index.ts` 的 `mapEvent()` 与 `EVENT_PROTOCOL` 常量表 | ⚠️ 运行时协议，编译期发现不了，**最危险** |
-| auth.json / models.json / models-store.json 格式 | `config/pi-agent/` 内维护（fail-fast 校验） | 格式变更需更新 `config/pi-agent/` 下对应文件后重启 |
-| TypeBox（工具参数 schema） | `defineTool` 参数定义 | 0.83.0 曾出 TypeBox 破坏性变更 |
+| SDK API（`session.create/messages/promptAsync/abort` 等） | `analysis/src/opencode/client.ts` | 编译期报错可发现 |
+| SDK 返回信封：**所有调用结果都是 `{data, request, response}` 包了一层**，取数须 `result.data ?? result` | `analysis/src/opencode/client.ts` | 编译期不报错，运行期 undefined（曾踩坑：session_id 丢失导致无限建会话） |
+| **事件字段名**（message.part.delta / message.part.updated / message.updated / session.idle / session.status / session.error） | `analysis/src/opencode/events.ts` 的 `EVENT_PROTOCOL` 常量表 | ⚠️ 运行时协议，编译期发现不了，**最危险** |
+| `opencode.json` 的 agent/permission/provider 结构 | `config/opencode/` | 权限配置错误会静默放开工具 |
+| 全局 auth（`~/.local/share/opencode/auth.json`） | 用户环境 | key 过期/未登录时模型调用失败 |
+| 数据隔离（`OPENCODE_DB` 环境变量） | `analysis/src/opencode/client.ts` spawn 参数 | 去掉隔离后平台会话混入个人 opencode DB |
 
 ### 升级步骤
 
 ```
-1. 备份 data/pi-agent/sessions/（历史会话）与 config/pi-agent/（LLM 配置）
-2. 读新版 CHANGELOG 的「Breaking Changes」段（node_modules/.../CHANGELOG.md 或 GitHub）
-3. analysis/package.json 改版本号（精确锁定，不写 ^）→ bun install
-4. 重启 sidecar，核对启动日志：
-   [analysis] pi-coding-agent@<新版本> 事件协议 v1.0   ← 版本留痕
+1. 备份 data/opencode/（opencode DB）与 data/pi/sessions/（run↔session 映射）
+2. 读新版 CHANGELOG 的「Breaking Changes」段（GitHub: anomalyco/opencode）
+3. analysis/package.json 改 @opencode-ai/sdk 版本号（精确锁定）→ bun install
+4. 升级 opencode 二进制（opencode upgrade），重启 sidecar，核对启动日志：
+   [analysis] opencode serve healthy (version <新版本>)
+   [analysis] @opencode-ai/sdk@<新版本> 事件协议 v2.0   ← 版本留痕
 5. 验证四件事：
    ① 新会话：发消息 → 工具调用正常、流式事件到达
-   ② 旧会话：打开历史 run → 能恢复对话与"处理详情"（思考内容存于会话数据，仅 UI 不展示）
-   ③ 事件字段：对照 EVENT_PROTOCOL 常量表，若 pi 事件名变了更新 mapEvent
-   ④ LLM 通道：opencode-go + deepseek 推理格式正常
-6. 浏览器全流程走一遍 → 通过则提交（package.json + bun.lock）
-7. 失败 → git checkout 回滚版本 + 恢复备份
+   ② 旧会话：打开历史 run → 能恢复对话与"处理详情"
+   ③ 事件字段：对照 EVENT_PROTOCOL 常量表，若 opencode 事件名变了更新 handleEvent
+   ④ LLM 通道：opencode-go 推理格式正常
+6. 浏览器全流程走一遍 → 通过则提交（package.json + bun.lock + config/opencode/ 全部文件 + analysis/src/opencode/）
+7. 失败 → 回滚版本 + 恢复备份
 ```
 
-### 事件协议常量表（`analysis/src/index.ts`）
+### 事件协议常量表（`analysis/src/opencode/events.ts`）
 
-升级后若页面收不到流式内容，先核对此表是否与新版 pi 事件名一致：
+升级后若页面收不到流式内容，先核对此表是否与新版 opencode 事件名一致：
 
-| 常量 | pi 事件名 | 平台事件 |
+| 常量 | opencode 事件 | 平台事件 |
 |---|---|---|
-| `piMessageUpdate` / `piTextDelta` / `piThinkingDelta` | `message_update`（assistantMessageEvent.type = `text_delta` / `thinking_delta`） | `text_delta` / `thinking_delta` |
-| `piToolStart` / `piToolEnd` | `tool_execution_start` / `tool_execution_end` | `tool_start` / `tool_end` |
-| `piMessageEnd` / `piAgentEnd` | `message_end` / `agent_end` | `message_end` / `done` |
+| `ocPartDelta` | `message.part.delta`（properties.partID + field="text" + delta，text/reasoning 均走此） | `text_delta` / `thinking_delta` |
+| `ocPartUpdated` | `message.part.updated`（properties.part，type=text/reasoning/tool；tool state: pending→running→completed/error，结果在 state.output） | 兜底文本 / `tool_start` / `tool_end` |
+| `ocMessageUpdated` | `message.updated`（assistant + time.completed → 每步结束） | `message_end` |
+| `ocSessionIdle` | `session.idle`（整轮完成 → 结论校验/补救） | `done`（cost/warning） |
+| `ocSessionError` / `ocMessageError` | 会话/消息错误 | `error` |
+| 成本 | `step-finish` part 的 `cost`/`tokens`（USD） | 脚注成本 |

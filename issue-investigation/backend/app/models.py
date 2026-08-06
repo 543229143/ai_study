@@ -19,6 +19,8 @@ class CreateRunRequest(BaseModel):
     phenomenon: Optional[str] = None
     scope: Optional[Scope] = None
     custom_apps: Optional[list[str]] = None
+    engine: Optional[str] = None  # Agent 引擎：opencode（默认）| pi（双引擎共存）
+    agent: Optional[str] = None  # 使用的 agent（config/opencode/opencode.json 定义，默认 investigation）
     text: Optional[str] = None  # 提供时自动识别 mode/app/查询值（简化入口）
 
 

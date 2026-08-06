@@ -4,14 +4,9 @@
       "db_name": "",
       "biz_keys": [
         {
-          "pattern": "LO\\d{10,}",
-          "table": "loan",
-          "field": "loan_no"
-        },
-        {
-          "pattern": "LN\\d{10,}",
-          "table": "loan",
-          "field": "loan_no"
+          "pattern": "CR\\d{19}",
+          "table": "ap_fund_appl",
+          "field": "appl_no"
         }
       ]
     },
@@ -19,8 +14,8 @@
       "db_name": "",
       "biz_keys": [
         {
-          "pattern": "LO\\d{10,}",
-          "table": "loan",
+          "pattern": "LO\\d{19}",
+          "table": "pilot_loan",
           "field": "loan_no"
         }
       ]
@@ -38,19 +33,23 @@
     {
       "term": "授信号",
       "apps": [
-        "lps"
+        "lps",
+        "lcs",
+        "ams"
       ]
     },
     {
       "term": "借据号",
       "apps": [
+        "lcs",
         "lps"
       ]
     },
     {
       "term": "账户",
       "apps": [
-        "ams"
+        "ams",
+        "lcs"
       ]
     }
   ],
@@ -58,6 +57,10 @@
     {
       "term": "日志id",
       "meaning": "ES 的 32 位十六进制 traceId（=requestNo），用于 ES 日志与跨服务链路检索"
+    },
+    {
+      "term": "机构日志",
+      "meaning": "goa系统  优先搜索es并带io.kyoto.support.goa.aspect.FacadeLogAspect"
     }
   ]
 }

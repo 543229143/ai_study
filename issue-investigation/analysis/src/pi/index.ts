@@ -2,13 +2,13 @@
  * Pi 分析服务：Bun + pi-coding-agent SDK。
  *
  * 职责：
- * - 每 run 一个 AgentSession（持久化到 data/pi-agent/sessions/）
+ * - 每 run 一个 AgentSession（持久化到 data/pi/sessions/）
  * - 自定义工具 6 个，通过 HTTP 回调 FastAPI 后端执行排查内核
  * - 会话事件流推送到后端 /events/{run_id}，由后端转发浏览器
  * - 结论完整性校验：agent_end 时缺结论自动补救一轮，仍缺则以 warning 放行
  *
- * 配置：LLM 配置（auth/settings/models）在 config/pi-agent/（项目根，不入库），
- * 会话数据在 data/pi-agent/sessions/（运行时，gitignore）。
+ * 配置：LLM 配置（auth/settings/models）在 config/pi/（项目根，不入库），
+ * 会话数据在 data/pi/sessions/（运行时，gitignore）。
  *
  * HTTP API（对后端开放）：
  *   POST /sessions/:runId                 创建会话
@@ -25,17 +25,17 @@ import {
   ModelRuntime,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import { validateConclusion } from "./conclusion_check.ts";
+import { validateConclusion } from "../conclusion_check.ts";
 
-const PORT = Number(process.env.INV_ANALYSIS_PORT || 8700);
+const PORT = Number(process.env.INV_ANALYSIS_PORT || 8701);
 const BACKEND_URL = process.env.INV_BACKEND_URL || "http://127.0.0.1:8600";
 const TOOL_TOKEN = process.env.INV_PI_TOOL_TOKEN || "local-dev-token";
-const DATA_DIR = process.env.INV_DATA_DIR || join(import.meta.dir, "..", "..", "data");
-const AGENT_DIR = process.env.INV_PI_AGENT_DIR || join(DATA_DIR, "pi-agent");
+const DATA_DIR = process.env.INV_DATA_DIR || join(import.meta.dir, "..", "..", "..", "data");
+const AGENT_DIR = process.env.INV_PI_AGENT_DIR || join(DATA_DIR, "pi");
 // LLM 配置目录（独立于 ~/.pi/agent 与 data/）
-const CONFIG_DIR = process.env.INV_PI_CONFIG_DIR || join(import.meta.dir, "..", "..", "config", "pi-agent");
+const CONFIG_DIR = process.env.INV_PI_CONFIG_DIR || join(import.meta.dir, "..", "..", "..", "config", "pi");
 
-const SYSTEM_PROMPT = await Bun.file(join(import.meta.dir, "..", "prompt.md")).text();
+const SYSTEM_PROMPT = await Bun.file(join(import.meta.dir, "..", "..", "..", "config", "prompt.md")).text();
 
 // ---------- LLM 配置校验：fail-fast，缺失时给出迁移指引 ----------
 function checkConfigFiles() {
@@ -43,7 +43,7 @@ function checkConfigFiles() {
   const missing = required.filter((f) => !existsSync(join(CONFIG_DIR, f)));
   if (missing.length > 0) {
     console.error(`[analysis] 缺少 LLM 配置文件: ${missing.join(", ")} (${CONFIG_DIR})`);
-    console.error(`[analysis] 请从 data/pi-agent/ 移入这 4 个文件，或写入新的 key（auth.json 的 opencode-go.key）。`);
+    console.error(`[analysis] 请从 data/pi/ 移入这 4 个文件，或写入新的 key（auth.json 的 opencode-go.key）。`);
     process.exit(1);
   }
 }
@@ -200,16 +200,16 @@ function getOrCreate(runId: string): Promise<SessionHandle> {
 
 async function createSession(runId: string) {
   const sessionDir = join(AGENT_DIR, "sessions", `run-${runId}`);
-  const sessionManager = SessionManager.create(join(DATA_DIR, "pi-agent"), sessionDir);
+  const sessionManager = SessionManager.create(join(DATA_DIR, "pi"), sessionDir);
   const loader = new DefaultResourceLoader({
-    cwd: join(DATA_DIR, "pi-agent"),
+    cwd: join(DATA_DIR, "pi"),
     agentDir: CONFIG_DIR,
     systemPromptOverride: () => SYSTEM_PROMPT,
   });
   await loader.reload();
 
   const handle = await createAgentSession({
-    cwd: join(DATA_DIR, "pi-agent"),
+    cwd: join(DATA_DIR, "pi"),
     agentDir: CONFIG_DIR,
     modelRuntime,
     customTools: buildTools(runId),
@@ -306,14 +306,14 @@ async function resumeSession(runId: string): Promise<SessionHandle> {
   }
 
   const loader = new DefaultResourceLoader({
-    cwd: join(DATA_DIR, "pi-agent"),
+    cwd: join(DATA_DIR, "pi"),
     agentDir: CONFIG_DIR,
     systemPromptOverride: () => SYSTEM_PROMPT,
   });
   await loader.reload();
 
   const handle = await createAgentSession({
-    cwd: join(DATA_DIR, "pi-agent"),
+    cwd: join(DATA_DIR, "pi"),
     agentDir: CONFIG_DIR,
     modelRuntime,
     customTools: buildTools(runId),
@@ -762,7 +762,7 @@ Bun.serve({
 function piSdkVersion(): string {
   try {
     const pkgPath = join(
-      import.meta.dir, "..", "node_modules", "@earendil-works", "pi-coding-agent", "package.json",
+      import.meta.dir, "..", "..", "node_modules", "@earendil-works", "pi-coding-agent", "package.json",
     );
     return JSON.parse(readFileSync(pkgPath, "utf-8")).version ?? "unknown";
   } catch {

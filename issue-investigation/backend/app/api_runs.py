@@ -1,6 +1,7 @@
 """runs API：创建 / 列表 / 详情 / 消息发送（门禁+轮次+环境注入）/ 产物。"""
 from __future__ import annotations
 
+import json
 import re
 
 from typing import Optional
@@ -10,11 +11,32 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from . import config
-from . import config_store, events, gate, pi_client, store
+from . import agent_engine as sidecar
+from . import config_store, events, gate, store
+from .store import run_engine
 from .kernel_io import read_json, read_text
 from .models import CreateRunRequest, SendMessageRequest
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+
+
+def list_agents() -> list[str]:
+    """平台可用 agent 列表。
+    - opencode 引擎：config/opencode/opencode.json 定义的（排除 opencode 内置）
+    - pi 引擎：无 agent 概念，仅 investigation
+    """
+    if config.AGENT_ENGINE == "pi":
+        return ["investigation"]
+    try:
+        data = json.loads(config.OPENCODE_CONFIG.read_text(encoding="utf-8"))
+        agents = [
+            k for k in (data.get("agent") or {})
+            if k not in config.OPENCODE_BUILTIN_AGENTS
+        ]
+        return agents or ["investigation"]
+    except Exception:  # noqa: BLE001
+        return ["investigation"]
+
 
 _REJECT_MESSAGE = (
     "我只能帮你排查日志报错、落库异常、配置与数据问题。"
@@ -98,34 +120,42 @@ async def create_run(req: CreateRunRequest):
         "alert": req.alert or "",
         "biz_key": req.biz_key or "",
         "phenomenon": req.phenomenon or "",
+        "agent": req.agent or "investigation",
+        "engine": req.engine or config.AGENT_ENGINE,
         "scope": req.scope,
         "custom_apps": req.custom_apps or [],
         "biz_hits": fields.get("biz_hits") if req.text else [],
         "priority_apps": fields.get("priority_apps") if req.text else [],
     })
-    # Pi 会话懒创建（sidecar 首次 prompt 时自动建），此处后台预热不阻塞返回
-    await _warm_pi_session(run["id"], run["env"])
+    # Agent 会话懒创建（sidecar 首次 prompt 时自动建），此处后台预热不阻塞返回
+    await _warm_agent_session(run["id"], run["env"], run_engine(run))
     return run
 
 
-async def _warm_pi_session(run_id: str, env: str) -> None:
-    """后台预热 pi 会话，失败不影响 run 创建（首次 prompt 时 sidecar 会再兜底）。"""
+async def _warm_agent_session(run_id: str, env: str, engine: str) -> None:
+    """后台预热 agent 会话，失败不影响 run 创建（首次 prompt 时 sidecar 会再兜底）。"""
     import asyncio
 
-    asyncio.create_task(_warm_pi_session_task(run_id, env))
+    asyncio.create_task(_warm_agent_session_task(run_id, env, engine))
 
 
-async def _warm_pi_session_task(run_id: str, env: str) -> None:
+async def _warm_agent_session_task(run_id: str, env: str, engine: str) -> None:
     try:
-        await pi_client.create_session(run_id, env)
-        store.append_timeline(run_id, "pi_session_ready", "Pi 会话已就绪")
+        await sidecar.create_session(engine, run_id, env)
+        store.append_timeline(run_id, "agent_session_ready", f"{engine} 会话已就绪")
     except Exception as exc:  # noqa: BLE001
-        store.append_timeline(run_id, "pi_session_warm_failed", f"Pi 会话预热失败（首次消息将自动重试）: {exc}")
+        store.append_timeline(run_id, "agent_session_warm_failed", f"{engine} 会话预热失败（首次消息将自动重试）: {exc}")
+
+
+@router.get("/agents")
+async def get_agents():
+    """平台可用引擎列表 + 当前引擎（opencode/pi 双引擎共存）。"""
+    return {"engine": config.AGENT_ENGINE, "engines": config.ENGINES}
 
 
 @router.get("")
-async def list_runs():
-    return store.list_runs()
+async def list_runs(engine: Optional[str] = None):
+    return store.list_runs(engine=engine)
 
 
 @router.get("/{run_id}")
@@ -152,7 +182,7 @@ async def send_message(run_id: str, req: SendMessageRequest):
 
     if not req.resume:
         # 正常发送：过门禁 + 计轮次
-        history = await pi_client.get_messages(run_id)
+        history = await sidecar.get_messages(run_engine(run), run_id)
         history_texts = [m.get("text", "") for m in history if m.get("role") in ("user", "assistant")]
 
         verdict = gate.gate_check(req.text, is_first=(run.get("message_count") or 0) == 0, history=history_texts)
@@ -172,31 +202,28 @@ async def send_message(run_id: str, req: SendMessageRequest):
     store.set_pending(run_id, True)
     await events.publish(run_id, {"type": "user_message", "data": {"text": req.text}})
 
-    # 识别提示注入：本条消息命中业务键/术语时，头部附加提示供 agent 生成查询/扫描计划
-    text = req.text
-    hits = config_store.detect_hits(text)
-    hint = config_store.build_hint(hits)
-    if hint:
-        text = f"[识别提示: {hint}]\n\n{text}"
+    # 识别结果记录为后台日志（不注入用户消息；供后续识别准确率分析/优化）
+    hits = config_store.detect_hits(req.text)
+    rec_note = config_store.build_hint(hits)
+    if rec_note:
+        store.append_timeline(run_id, "recognition", rec_note)
 
-    # 首轮初始采集：平台在 LLM 决策前先自动采一轮日志，注入「初始证据」段
-    # （对应 skill driver 的 logs 阶段先行；无查询值/采集失败时不阻塞，agent 自主补查）
+    # 首轮初始采集：平台自动采一轮日志，产物落盘（不注入消息前缀，agent 按 prompt 引导用 read_artifact 复用）
+    text = req.text
     if not req.resume and (run.get("message_count") or 0) == 0:
-        evidence = await _collect_initial_evidence(run_id, run, env)
-        if evidence:
-            text = f"[初始证据: 平台已自动完成首轮日志采集]\n{evidence}\n\n{text}"
+        await _collect_initial_evidence(run_id, run, env)
 
     try:
-        await pi_client.send_message(run_id, text, env, history=history_texts if not req.resume else None)
+        await sidecar.send_message(run_engine(run), run_id, text, env, history=history_texts if not req.resume else None, agent=run.get("agent") or "investigation")
     except Exception as exc:  # noqa: BLE001
         store.set_pending(run_id, False)
-        await events.publish(run_id, {"type": "error", "data": {"message": f"转发 Pi 失败: {exc}"}})
-        raise HTTPException(502, f"Pi 转发失败: {exc}")
+        await events.publish(run_id, {"type": "error", "data": {"message": f"转发 Agent 失败: {exc}"}})
+        raise HTTPException(502, f"Agent 转发失败: {exc}")
     return {"status": "accepted"}
 
 
 async def _collect_initial_evidence(run_id: str, run: dict, env: str) -> str:
-    """首轮自动 collect_logs：识别参数 → 采集 → 返回可注入的摘要文本（失败返回空串）。"""
+    """首轮自动 collect_logs：识别参数 → 采集 → 产物落盘（不注入消息），失败静默。"""
     import asyncio
 
     from .api_tools import _next_seq
@@ -205,27 +232,19 @@ async def _collect_initial_evidence(run_id: str, run: dict, env: str) -> str:
     mode = run.get("mode") or "trace_id"
     query = run.get("trace_id") or run.get("alert") or run.get("biz_key") or ""
     if not query:
-        return ""
+        return
     apps = (run.get("priority_apps") or [])[:3] or [run.get("app") or "lps"]
     params = {"env": env, "app": run.get("app") or "lps", "mode": mode, "query": query, "apps": apps}
     loop = asyncio.get_running_loop()
     try:
         result = await loop.run_in_executor(None, lambda: collect_logs(run_id, _next_seq(run_id, "collect_logs"), params))
+        store.append_timeline(
+            run_id,
+            "initial_collect_done",
+            f"{mode}={query[:60]} 命中 {result.get('total_entries') or 0} 条（产物 {result.get('artifact')}）",
+        )
     except Exception as exc:  # noqa: BLE001
         print(f"[initial evidence] {run_id}: {exc}")
-        return ""
-
-    by_app = result.get("by_app") or {}
-    cov = result.get("time_coverage") or {}
-    lines = [
-        f"- 查询: {mode}={query[:80]}（应用: {','.join(apps)}）",
-        f"- 总命中: {result.get('total_entries') or 0} 条"
-        + (f"（时间覆盖 {cov.get('earliest')} ~ {cov.get('latest')}）" if cov.get("earliest") else ""),
-    ]
-    for a, info in by_app.items():
-        lines.append(f"- {a}: {info.get('count') or 0} 条" + (f"，错误 {info.get('error_count') or 0}" if info.get("error_count") else ""))
-    lines.append(f"- 完整产物: {result.get('artifact')}")
-    return "\n".join(lines)
 
 
 @router.get("/{run_id}/status")
@@ -233,7 +252,7 @@ async def get_run_status(run_id: str):
     run = store.get_run(run_id)
     if run is None:
         raise HTTPException(404, "run not found")
-    status = await pi_client.get_session_status(run_id)
+    status = await sidecar.get_session_status(run_engine(run), run_id)
     return {
         "run_id": run_id,
         "pending": bool(run.get("pending")),
@@ -248,7 +267,7 @@ async def abort_run(run_id: str):
     if store.get_run(run_id) is None:
         raise HTTPException(404, "run not found")
     try:
-        await pi_client.abort_session(run_id)
+        await sidecar.abort_session(run_engine(store.get_run(run_id) or {}), run_id)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"停止失败: {exc}")
     await events.publish(run_id, {"type": "user_aborted", "data": {}})
@@ -261,7 +280,7 @@ async def get_cost(run_id: str):
     if store.get_run(run_id) is None:
         raise HTTPException(404, "run not found")
     try:
-        cost = await pi_client.get_cost(run_id)
+        cost = await sidecar.get_cost(run_engine(store.get_run(run_id) or {}), run_id)
     except Exception:  # noqa: BLE001
         cost = 0.0
     return {"run_id": run_id, "cost": cost}
@@ -301,17 +320,19 @@ async def get_satisfaction(run_id: str):
 
 @router.get("/{run_id}/messages")
 async def get_messages(run_id: str):
-    if store.get_run(run_id) is None:
+    run = store.get_run(run_id)
+    if run is None:
         raise HTTPException(404, "run not found")
-    # 合并：pi 会话消息 + 门禁拦截记录（按时间排序，用户/引导语完整可见）
+    engine = run_engine(run)
+    # 合并：agent 会话消息 + 门禁拦截记录（按时间排序，用户/引导语完整可见）
     rejected = store.list_rejected(run_id)
     if not rejected:
         try:
-            return await pi_client.get_messages(run_id)
+            return await sidecar.get_messages(engine, run_id)
         except Exception:  # noqa: BLE001
             return []
     try:
-        pi_msgs = await pi_client.get_messages(run_id)
+        pi_msgs = await sidecar.get_messages(engine, run_id)
     except Exception:  # noqa: BLE001
         pi_msgs = []
     merged = pi_msgs + rejected

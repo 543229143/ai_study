@@ -56,6 +56,16 @@
           <span v-else class="run-title idle">未开始排查</span>
         </div>
         <div class="main-top-right">
+          <div class="agent-switch">
+            <select
+              class="agent-select mono"
+              :value="agent"
+              title="切换 Agent（会话列表按 Agent 过滤）"
+              @change="switchAgent(($event.target as HTMLSelectElement).value)"
+            >
+              <option v-for="a in agents" :key="a" :value="a">{{ agentLabel(a) }}</option>
+            </select>
+          </div>
           <router-link to="/config" class="cfg-link mono">配置</router-link>
           <div class="env-switch">
             <button
@@ -152,9 +162,9 @@
             <div class="gen-stats mono" v-if="running">
               <span class="gen-model">{{ modelName }}</span>
               <span class="gen-down">↓</span>
-              <span class="gen-tokens">{{ streamTokens.toLocaleString() }} tokens（估算）</span>
+              <span class="gen-tokens">{{ streamTokens.toLocaleString() }} tokens</span>
               <span class="gen-sep">·</span>
-              <span class="gen-speed">{{ streamSpeed.toFixed(1) }} t/s 生成速度</span>
+              <span class="gen-speed">{{ streamSpeed.toFixed(1) }} token/s</span>
               <span class="gen-sep">·</span>
               <span class="gen-elapsed">{{ streamElapsed.toFixed(1) }}s</span>
             </div>
@@ -267,6 +277,7 @@ import { marked } from "marked";
 import {
   api,
   createRun,
+  getAgents,
   getCost,
   getMessages,
   getModelName,
@@ -310,6 +321,8 @@ interface Msg {
 }
 
 const env = ref<"dev" | "sit">("dev");
+const agents = ref<string[]>(["opencode", "pi"]);
+const agent = ref("opencode");
 const run = ref<Run | null>(null);
 const sessions = ref<Run[]>([]);
 const messages = ref<Msg[]>([]);
@@ -393,7 +406,7 @@ function estimateTokens(text: string): number {
   return other + Math.round(ascii / 4);
 }
 
-/** 动态刷新生成速度（每帧随增量更新）。 */
+/** 动态刷新生成速度（token/秒）。 */
 function updateSpeed() {
   const elapsed = (Date.now() - turnStartAt) / 1000;
   streamSpeed.value = elapsed > 0 ? streamTokens.value / elapsed : 0;
@@ -480,7 +493,11 @@ let rafId = 0;
 let mdTimer: ReturnType<typeof setTimeout> | null = null;
 
 const remaining = computed(() => (run.value ? run.value.turn_limit - run.value.message_count : 10));
-const filteredSessions = computed(() => sessions.value.filter((s) => s.env === env.value));
+const filteredSessions = computed(() =>
+  sessions.value.filter(
+    (s) => s.env === env.value && (s.engine || "opencode") === agent.value,
+  ),
+);
 const inputPlaceholder = computed(() => {
   if (!run.value) return "描述要排查的问题，附 traceId / 业务单号 + 项目(lps/lcs...) 更准确";
   if (turnLimitReached.value) return "已达上限，请新建排查";
@@ -511,7 +528,7 @@ function queueDelta(text: string, thinking: string) {
       }
       if (tokText || tokThink) {
         streamTokens.value += estimateTokens(tokText + tokThink);
-        updateSpeed();
+
       }
     });
   }
@@ -566,10 +583,40 @@ function scrollBottom() {
 
 async function loadSessions() {
   try {
-    sessions.value = await listRuns();
+    sessions.value = await listRuns(agent.value);
   } catch {
     /* ignore */
   }
+}
+
+/** agent 显示名：pi 显示为数学符号 π。 */
+function agentLabel(a: string): string {
+  return a === "pi" ? "π" : a;
+}
+
+/** 切换 agent：重置当前会话视图，会话列表按新 agent 过滤。 */
+async function switchAgent(a: string) {
+  if (a === agent.value) return;
+  agent.value = a;
+  disconnect();
+  run.value = null;
+  messages.value = [];
+  streamText.value = "";
+  streamHtml.value = "";
+  thinkingText.value = "";
+  running.value = false;
+  turnLimitReached.value = false;
+  cost.value = null;
+  streamTokens.value = 0;
+  streamElapsed.value = 0;
+  stopElapsedTimer();
+  draft.value = "";
+  showRate.value = false;
+  forceRateVisible.value = false;
+  rated.value = null;
+  rating.value = 0;
+  rateReason.value = "";
+  await loadSessions();
 }
 
 function newSession() {
@@ -583,7 +630,6 @@ function newSession() {
   turnLimitReached.value = false;
   cost.value = null;
   streamTokens.value = 0;
-  streamSpeed.value = 0;
   streamElapsed.value = 0;
   stopElapsedTimer();
   draft.value = "";
@@ -600,6 +646,14 @@ async function openSession(s: Run) {
   run.value = s;
   env.value = s.env;
   turnLimitReached.value = (s.turn_limit - s.message_count) <= 0;
+  // 推理中恢复：run 仍在 processing 时恢复执行中状态（incomplete 轮由 syncFromServer 剔除，流式从 WS 继续）
+  const st = await getRunStatus(s.id).catch(() => null);
+  if (st && st.pending && st.processing && !st.sidecar_unreachable) {
+    running.value = true;
+    streamTokens.value = 0;
+    turnStartAt = Date.now();
+    startElapsedTimer();
+  }
   await syncFromServer();
   await loadSatisfaction(s.id);
   // 历史中被用户停止的排查：补一条停止标记
@@ -806,7 +860,6 @@ function flushStream() {
   thinkingText.value = "";
   running.value = false;
   streamTokens.value = 0;
-  streamSpeed.value = 0;
   streamElapsed.value = 0;
   stopElapsedTimer();
   void text;
@@ -863,15 +916,14 @@ async function send() {
   streamHtml.value = "";
   thinkingText.value = "";
   streamTokens.value = 0;
-  streamSpeed.value = 0;
   turnStartAt = Date.now();
   startElapsedTimer();
   // 乐观回显：立即显示用户消息，不等后端建会话/门禁
   pushMsg({ role: "user", text });
   try {
     if (!run.value) {
-      // 首条消息：自动创建会话（后端从文本识别 mode/app/查询值）
-      const r = await createRun({ env: env.value, text });
+      // 首条消息：自动创建会话（后端从文本识别 mode/app/查询值；agent 用当前选择的）
+      const r = await createRun({ env: env.value, text, engine: agent.value });
       run.value = r;
       connectStream(r.id);
     }
@@ -894,6 +946,13 @@ async function send() {
 }
 
 onMounted(async () => {
+  try {
+    const r = await getAgents();
+    if (r.engines?.length) agents.value = r.engines;
+    if (!agents.value.includes(agent.value)) agent.value = agents.value[0];
+  } catch {
+    /* 默认 opencode */
+  }
   loadSessions();
   modelName.value = await getModelName();
 });onBeforeUnmount(disconnect);
@@ -1110,6 +1169,23 @@ onMounted(async () => {
   border-radius: 4px;
   overflow: hidden;
   background: var(--bg);
+}
+
+.agent-select {
+  max-width: 130px;
+  padding: 4px 6px;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.agent-select:hover {
+  border-color: var(--warn);
 }
 
 .main-top-right {
