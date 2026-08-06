@@ -78,11 +78,61 @@ async def post_event(run_id: str, body: dict, x_tool_token: str | None = Header(
                 await events.publish(run_id, ev)
                 if ev.get("type") in ("done", "error"):
                     store.set_pending(run_id, False)
+        if any(ev.get("type") == "done" for ev in batch if isinstance(ev, dict)):
+            await _snapshot_conclusion(run_id)
     else:
         await events.publish(run_id, body)
         if body.get("type") in ("done", "error"):
             store.set_pending(run_id, False)
+        if body.get("type") == "done":
+            await _snapshot_conclusion(run_id)
     return {"ok": True}
+
+
+async def _snapshot_conclusion(run_id: str) -> None:
+    """done 时把「问题 → 最终结论」结构化快照写入 run.json 的 conclusion 字段。
+
+    供后续排查知识库直接使用：问题/环境/应用/结论/轮次/本轮工具数/usage。
+    """
+    import re
+    import time
+
+    from . import pi_client
+
+    def clean_question(text: str) -> str:
+        """去掉注入前缀（[识别提示:…] / [当前排查环境:…] / 用户消息:），还原原始问题。"""
+        t = re.sub(r"^\[识别提示:[^\]]*\]\s*", "", text or "")
+        t = re.sub(r"^\[当前排查环境:[^\]]*\]\s*", "", t)
+        t = re.sub(r"^用户消息:\s*", "", t)
+        return t.strip()
+
+    try:
+        run = store.get_run(run_id)
+        if run is None:
+            return
+        msgs = await pi_client.get_messages(run_id)
+        first_user = next((m.get("text", "") for m in msgs if m.get("role") == "user"), "")
+        last_ai = next(
+            (m for m in reversed(msgs) if m.get("role") == "assistant" and not m.get("incomplete")),
+            None,
+        )
+        if not last_ai or not (last_ai.get("text") or "").strip():
+            return
+        snapshot = {
+            "question": clean_question(first_user)[:500],
+            "answer": last_ai.get("text", "")[:20000],
+            "env": run.get("env"),
+            "app": run.get("app"),
+            "mode": run.get("mode"),
+            "rounds": run.get("message_count") or 0,
+            "tools_used": len(last_ai.get("tool_calls") or []),
+            "usage": last_ai.get("usage"),
+            "satisfaction": store.get_satisfaction(run_id),
+            "ts": time.time(),
+        }
+        store.update_run(run_id, {"conclusion": snapshot})
+    except Exception as exc:  # noqa: BLE001
+        print(f"[conclusion snapshot] {run_id}: {exc}")
 
 
 @router.get("/envs")

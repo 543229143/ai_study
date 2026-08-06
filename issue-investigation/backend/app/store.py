@@ -118,6 +118,7 @@ def run_artifact_paths(run_id: str) -> dict[str, Path]:
 
 
 def update_env(run_id: str, env: str) -> dict:
+    append_timeline(run_id, "env_switched", f"切换环境 → {env}")
     return update_run(run_id, {"env": env})
 
 

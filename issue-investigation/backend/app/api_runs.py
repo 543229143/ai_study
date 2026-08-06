@@ -244,6 +244,10 @@ async def submit_satisfaction(run_id: str, req: SatisfactionRequest):
         run_id, req.stars, (req.reason or "").strip(),
         (run.get("message_count") or 0), req.forced,
     )
+    # 回写结论快照的满意度（知识库用：问题→结论→评价 一条链）
+    if run.get("conclusion"):
+        run["conclusion"]["satisfaction"] = entry
+        store.update_run(run_id, {"conclusion": run["conclusion"]})
     store.append_timeline(run_id, "satisfaction", f"满意度 {entry['stars']} 星")
     return {"ok": True, "satisfaction": entry}
 
