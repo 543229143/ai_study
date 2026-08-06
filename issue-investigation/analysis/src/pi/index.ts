@@ -571,6 +571,10 @@ function groupMessages(entries: any[]): any[] {
     if (role === "toolResult") continue;
     if (role === "user") {
       const text = stripUserPrefix(extractText(m));
+      // 过滤平台补救轮系统提示（REMEDY_PROMPT 经 followUp/prompt 存为 user 消息，不应展示）
+      if (text.includes("结论完整性检查")) {
+        continue;
+      }
       // 仅去重紧邻的重复（自动续跑重发同一消息）；隔了 assistant 回复的相同提问保留
       const last = out[out.length - 1];
       if (last && last.role === "user" && last.text === text) {

@@ -313,6 +313,8 @@ function groupRows(rows: any[]): any[] {
         parts.filter((p) => p.type === "text").map((p) => p.text ?? "").join("\n"),
       );
       const last = out[out.length - 1];
+      // 过滤平台补救轮系统提示（REMEDY_PROMPT 经 promptAsync 存为 user 消息，不应展示）
+      if (text.includes("结论完整性检查")) continue;
       // 仅去重紧邻的重复（自动续跑重发同一消息）；隔了 assistant 回复的相同提问保留
       if (last && last.role === "user" && last.text === text) continue;
       out.push({ role: "user", text, ts: info.time?.created ?? Date.now() });

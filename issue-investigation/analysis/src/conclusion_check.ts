@@ -80,6 +80,11 @@ export function validateConclusion(text: string, opts: ConclusionCheckOptions = 
     return { ok: false, reason: "回答疑似回显了用户消息/平台注入前缀（模型空回复），未给出排查结论" };
   }
   const inconclusive = INCONCLUSIVE_MARKERS.some((m) => t.includes(m));
+  const hasConfidence = CONFIDENCE_RE.test(t);
+  // 结论结构检查：已定位结论必须含置信度（prompt 规则要求）；未定位场景改为要求待补线索
+  if (!inconclusive && !hasConfidence) {
+    return { ok: false, reason: "回答未给出结论结构（缺置信度/未定位标记），疑似未完成" };
+  }
   if (inconclusive && !hasClues(t)) {
     return { ok: false, reason: "未定位根因但回答未说明待补线索" };
   }

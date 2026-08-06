@@ -101,3 +101,14 @@ test("含识别提示前缀的回显 → 拦截", () => {
   const r = validateConclusion("[识别提示: 命中 lps.ap_fund_appl.appl_no]\n\n查一下为什么被拒绝");
   expect(r.ok).toBe(false);
 });
+
+test("中间过程文本（无置信度/未定位标记）→ 拦截（防模型早停被当结论）", () => {
+  const r = validateConclusion("我先检查平台是否已自动执行过初始日志采集，复用产物避免重复采集。");
+  expect(r.ok).toBe(false);
+  expect(r.reason).toContain("结论结构");
+});
+
+test("已定位但缺置信度 → 拦截", () => {
+  const r = validateConclusion("## 结论\n根因：参数校验失败，证据已列出。");
+  expect(r.ok).toBe(false);
+});

@@ -809,9 +809,11 @@ async function resumeLastTurn() {
 }
 
 /** 重连后/打开会话时从服务端同步消息，补回断线期间丢失的事件。
- *  运行中恢复：最后一条 incomplete 轮（半成品）合并进流式区域续传（streamText 以它继续 + WS delta 追加），
- *  不渲染为独立完成消息——避免刷新后"半成品快照 + 新流式"两条并存、内容随刷新跳变；
- *  中间过程/工具调用由 done 后 refreshTurn 全量合并保留。 */
+ *  运行中恢复（最终行为）：最后一条 incomplete 轮（半成品）——
+ *  - 条目保留在消息列表（中间过程/工具调用可见，处理详情可展开）
+ *  - 正文置空，交给流式区域续传（streamText 以它继续 + WS delta 追加）
+ *  不渲染为独立完成消息 → 无"半成品快照 + 新流式"两条并存、内容不随刷新跳变；
+ *  done 后 refreshTurn 全量替换（最终答案 + 中间过程 + 工具调用 + usage）。 */
 async function syncFromServer() {
   if (!run.value) return;
   try {
@@ -831,7 +833,8 @@ async function syncFromServer() {
           streamHtml.value = renderMd(resume);
           streamTokens.value = estimateTokens(resume);
         }
-        list = list.slice(0, -1);
+        // 保留条目（中间过程/工具调用可见），仅清空正文避免与流式区域重复
+        list[list.length - 1] = { ...last, text: "", html: "" };
       }
     }
     messages.value = list;
@@ -851,6 +854,12 @@ async function handleEvent(e: any) {
       break;
     case "message_end":
       // 每条中间消息结束后插入换行分隔（流式展示时各过程消息分行，避免连成一段）
+      if (aborted.value) break;
+      queueDelta("\n\n", "");
+      break;
+    case "tool_start":
+    case "tool_end":
+      // 工具调用前后分段（opencode 一轮单条消息多 part，中间无 message_end，需手动分隔）
       if (aborted.value) break;
       queueDelta("\n\n", "");
       break;
