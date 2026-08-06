@@ -274,10 +274,16 @@ async function concludeTurn(runId: string, handle: SessionHandle, doneEvent: any
     return;
   }
   if (remedied.get(runId)) {
-    forwardEvent(runId, {
-      ...doneEvent,
-      data: { ...(doneEvent.data || {}), warning: v.reason },
-    });
+    // 补救轮已执行：重新校验补救轮输出，达标则正常 done（不再带"补救前"的失败 warning）
+    const v2 = validateConclusion(lastAssistantText(handle), { userText: lastUserText(handle) });
+    if (v2.ok) {
+      forwardEvent(runId, doneEvent);
+    } else {
+      forwardEvent(runId, {
+        ...doneEvent,
+        data: { ...(doneEvent.data || {}), warning: v2.reason },
+      });
+    }
     return;
   }
   remedied.set(runId, true);

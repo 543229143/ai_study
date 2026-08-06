@@ -127,7 +127,18 @@ async function concludeTurn(runId: string, sessionId: string): Promise<void> {
     return;
   }
   if (remedied.get(runId)) {
-    forwardEvent(runId, { type: "done", data: { cost, warning: v.reason } });
+    // 补救轮已执行：重新校验补救轮输出，达标则正常 done（不再带"补救前"的失败 warning）
+    let v2: { ok: boolean; reason?: string };
+    try {
+      v2 = validateConclusion(await lastAssistantText(runId), { userText: await lastUserText(runId) });
+    } catch (err) {
+      v2 = { ok: false, reason: String(err) };
+    }
+    if (v2.ok) {
+      forwardEvent(runId, { type: "done", data: { cost } });
+    } else {
+      forwardEvent(runId, { type: "done", data: { cost, warning: v2.reason } });
+    }
     return;
   }
   remedied.set(runId, true);
