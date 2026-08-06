@@ -50,6 +50,9 @@ const NEGATED_CLUE_RE = /(?:无|暂无|不需要|无需|不需要提供)\s*(?:�
 
 const CONFIDENCE_RE = /(?:置信度|confidence)\D*?(\d{1,3})\s*%/i;
 
+/** 文字置信度（"置信度：高/中/低"）——模型常用文字表述，与百分比等价视为已给出置信度。 */
+const TEXT_CONFIDENCE_RE = /(?:置信度|confidence)\s*[:：]?\s*(?:极高|较高|高|中|较低|低)/i;
+
 /** 多余断言：结论后的"无需干预/无需操作"类总结（用户未询问下一步时属于冗余，硬校验必补救）。 */
 const EXTRA_CLAIM_RE = /(?:无需|不需要|不用)\s*(?:用户侧?|用户|人工|额外)?\s*(?:干预|操作|处理|关注|介入|跟进)/;
 
@@ -80,7 +83,7 @@ export function validateConclusion(text: string, opts: ConclusionCheckOptions = 
     return { ok: false, reason: "回答疑似回显了用户消息/平台注入前缀（模型空回复），未给出排查结论" };
   }
   const inconclusive = INCONCLUSIVE_MARKERS.some((m) => t.includes(m));
-  const hasConfidence = CONFIDENCE_RE.test(t);
+  const hasConfidence = CONFIDENCE_RE.test(t) || TEXT_CONFIDENCE_RE.test(t);
   // 结论结构检查：已定位结论必须含置信度（prompt 规则要求）；未定位场景改为要求待补线索
   if (!inconclusive && !hasConfidence) {
     return { ok: false, reason: "回答未给出结论结构（缺置信度/未定位标记），疑似未完成" };

@@ -112,3 +112,14 @@ test("已定位但缺置信度 → 拦截", () => {
   const r = validateConclusion("## 结论\n根因：参数校验失败，证据已列出。");
   expect(r.ok).toBe(false);
 });
+
+test("文字置信度（置信度：高）→ 视为已给出置信度，不误判补救", () => {
+  const r = validateConclusion(
+    "## 排查结论\n根因：机构回调返回 conclusion=40。置信度：高（回调明文+落库+时间戳一致）。",
+  );
+  expect(r.ok).toBe(true);
+});
+
+test("文字置信度（较高/低）→ 通过", () => {
+  expect(validateConclusion("## 结论\n根因：XX。置信度较低，证据有限。").ok).toBe(true);
+});
