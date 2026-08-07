@@ -7,7 +7,7 @@ export default tool({
   description: "读取当前 run 的中间产物全文（artifacts/ 下相对路径）。当工具返回的采样/摘要不足以判断（如日志采样被截断、需要看完整日志/完整 SQL 结果/完整报告）时使用。",
   args: {
     path: tool.schema.string().describe("artifacts/ 下相对路径，如 collect_logs-001/logs.json、db_query-001/database.json、run_investigation-001/investigation-report.md"),
-    max_chars: tool.schema.number().optional().describe("读取字符数上限（默认 20000，最大 60000，配合 offset 按字符分段读）"),
+    max_chars: tool.schema.number().optional().describe("读取字符数上限（默认 20000，**最大 40000，超过自动收敛**——平台对 deepseek-v4-flash-free 的输出按字节截断，40000 以上会被截断导致无效返回；配合 offset 按字符分段读）"),
     offset: tool.schema.number().optional().describe("起始偏移（配合 max_chars 分段读大文件）"),
   },
   async execute(args, context) {

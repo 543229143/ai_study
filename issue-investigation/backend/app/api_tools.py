@@ -91,11 +91,13 @@ async def post_event(run_id: str, body: dict, x_tool_token: str | None = Header(
                 await events.publish(run_id, ev)
         if any(ev.get("type") == "done" for ev in batch if isinstance(ev, dict)):
             await _snapshot_conclusion(run_id)
+            await _backfill_report(run_id)
     else:
         _record_event(run_id, body)
         await events.publish(run_id, body)
         if body.get("type") == "done":
             await _snapshot_conclusion(run_id)
+            await _backfill_report(run_id)
     return {"ok": True}
 
 
@@ -165,6 +167,47 @@ def _agent_model() -> str:
     except Exception:  # noqa: BLE001
         pass
     return config.LLM_MODEL
+
+
+async def _backfill_report(run_id: str) -> None:
+    """done 时把模型最终回答回写到 run_investigation-*/investigation-report.md 的 §5。
+
+    报告 §1-§4 为脚本浓缩摘要（§5 预填初始评分置信度，如 40%），模型补查后的最终结论
+    替换 §5 占位，报告与对话回答一致（对齐 skill「Agent 用 Edit 填 §5」）。
+    失败静默（不影响排查流程）。
+    """
+    from . import agent_engine as sidecar
+
+    try:
+        run = store.get_run(run_id)
+        if run is None:
+            return
+        run_dir = config.RUNS_DIR / run_id
+        reports = sorted((run_dir / "artifacts").glob("run_investigation-*/investigation-report.md"))
+        if not reports:
+            return
+        msgs = await sidecar.get_messages(store.run_engine(run), run_id)
+        last_ai = next(
+            (m for m in reversed(msgs) if m.get("role") == "assistant" and not m.get("incomplete")),
+            None,
+        )
+        answer = (last_ai or {}).get("text") or ""
+        if not answer.strip():
+            return
+        report_path = reports[-1]
+        text = report_path.read_text(encoding="utf-8")
+        marker = "## 5. "
+        idx = text.find(marker)
+        if idx < 0:
+            return
+        head = text[:idx].rstrip()
+        report_path.write_text(
+            f"{head}\n\n## 5. 根因分析（模型回写）\n\n{answer.strip()}\n\n"
+            "---\n> 回写于排查完成时：§1-§4 由初始采集生成，§5 为模型最终结论，置信度以本段为准。\n",
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[backfill report] {run_id}: {exc}")
 
 
 @router.get("/envs")

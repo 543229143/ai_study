@@ -306,7 +306,10 @@ def read_artifact(run_id: str, seq: int, params: dict) -> dict:
         return {"error": f"文件不存在: {path}"}
 
     size = target.stat().st_size
-    max_chars = max(1, int(params.get("max_chars") or 20000))
+    # 安全封顶：opencode 模型层工具输出按字节截断（~61KB），日志含中文（最多 3 字节/字符），
+    # 超过 40000 字符必然被截断并触发模型降窗重试——写死上限让模型一次拿到安全结果
+    MAX_ARTIFACT_CHARS = 40000
+    max_chars = min(MAX_ARTIFACT_CHARS, max(1, int(params.get("max_chars") or 20000)))
     offset = max(0, int(params.get("offset") or 0))
     # 字符语义：读全量后按字符切片（避免按字节 seek 切坏多字节中文）
     with open(target, "r", encoding="utf-8", errors="replace") as f:
@@ -316,6 +319,7 @@ def read_artifact(run_id: str, seq: int, params: dict) -> dict:
         "path": path,
         "file_size": size,
         "offset": offset,
+        "max_chars": max_chars,
         "returned_chars": len(text),
         "total_chars": len(full),
         "truncated": offset + len(text) < len(full),
