@@ -60,7 +60,7 @@
     },
     {
       "term": "机构日志",
-      "meaning": "goa系统  优先搜索es并带io.kyoto.support.goa.aspect.FacadeLogAspect条件"
+      "meaning": "goa应用  ES"
     }
   ]
 }
