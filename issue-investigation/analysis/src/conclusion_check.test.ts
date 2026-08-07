@@ -140,3 +140,17 @@ test("未定位+待补线索（未能继续定位/缺以下线索/置信度：�
   );
   expect(r.ok).toBe(true);
 });
+
+test("模板开头（排查完成（sit）— 结论…）无置信度字样 → 通过", () => {
+  const r = validateConclusion(
+    "排查完成（sit）— 结论：机构侧拒绝授信。\n拒绝原因：身份证图片模糊（conclusion=40）。\n关键日志（lps，traceId 4a92bb…）：\n| 时间 | 服务 | 日志点 | 内容 |\nDB 佐证：ap_fund_appl（appl_no=CR1260…）：apply_state=ARJ",
+  );
+  expect(r.ok).toBe(true);
+});
+
+test("模板开头 + 未定位 + 待补线索 → 通过", () => {
+  const r = validateConclusion(
+    "排查完成（dev）— 结论：未能定位。\n待补线索：需提供 traceId。",
+  );
+  expect(r.ok).toBe(true);
+});
