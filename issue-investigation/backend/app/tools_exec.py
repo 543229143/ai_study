@@ -51,7 +51,11 @@ def _ordered_apps(run_id: str, apps: list[str]) -> list[str]:
 
 
 def collect_logs(run_id: str, seq: int, params: dict) -> dict:
-    """ES 日志采集。params: env, app, mode, query/alert/biz, scope, apps[]"""
+    """ES 日志采集。params: env, app, mode, query/alert/biz, scope, apps[]
+
+    apps[] 显式指定 = 真实采集清单（只采这些应用，对齐 skill refetch_logs 语义）；
+    不传 apps 时按 scope：all=全部配置应用（默认广扫防漏），primary_only=仅主应用。
+    """
     _ensure_kernel()
     from lib.common import default_log_time_from
     from collect_logs import collect_multi
@@ -66,7 +70,15 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
     if not query:
         query = biz or alert or ""
     time_from = params.get("time_from") or default_log_time_from(mode)
-    apps = _ordered_apps(run_id, params.get("apps") or [app])
+    requested = params.get("apps")
+    if requested:
+        # 显式指定 → 真实过滤（对齐 skill refetch_logs 语义）；支持逗号字符串
+        raw = requested if isinstance(requested, list) else str(requested).replace("，", ",").split(",")
+        apps = list(dict.fromkeys(a.strip().lower() for a in raw if str(a).strip())) or [app]
+    elif (params.get("scope") or "").strip().lower() == "primary_only":
+        apps = [app]
+    else:
+        apps = _ordered_apps(run_id, [app])
     out = _artifact_dir(run_id, "collect_logs", seq) / "logs.json"
 
     started = time.time()

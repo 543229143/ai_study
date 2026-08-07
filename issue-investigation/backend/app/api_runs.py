@@ -206,25 +206,40 @@ async def send_message(run_id: str, req: SendMessageRequest):
 
 
 async def _collect_initial_evidence(run_id: str, run: dict, env: str) -> str:
-    """首轮自动 collect_logs：识别参数 → 采集 → 产物落盘（不注入消息），失败静默。"""
+    """首轮自动 run_investigation：识别参数 → 全流水线 → 报告+浓缩证据落盘（不注入消息），失败静默。
+
+    对齐 skill 初始流程：跑完整采集产 investigation-report.md（§1-§4 浓缩摘要）+ slim evidence.json，
+    agent 首轮 read_artifact 报告即可用，无需翻原始日志。
+    """
     import asyncio
 
     from .api_tools import _next_seq
-    from .tools_exec import collect_logs
+    from .tools_exec import run_investigation
 
     mode = run.get("mode") or "trace_id"
     query = run.get("trace_id") or run.get("alert") or run.get("biz_key") or ""
     if not query:
         return
-    apps = (run.get("priority_apps") or [])[:3] or [run.get("app") or "lps"]
-    params = {"env": env, "app": run.get("app") or "lps", "mode": mode, "query": query, "apps": apps}
+    params = {
+        "env": env,
+        "app": run.get("app") or "lps",
+        "mode": mode,
+        "query": query,
+        "scope": "all",
+    }
+    for k in ("biz_key", "alert"):
+        if run.get(k):
+            params[k] = run[k]
     loop = asyncio.get_running_loop()
     try:
-        result = await loop.run_in_executor(None, lambda: collect_logs(run_id, _next_seq(run_id, "collect_logs"), params))
+        result = await loop.run_in_executor(
+            None,
+            lambda: run_investigation(run_id, _next_seq(run_id, "run_investigation"), params),
+        )
         store.append_timeline(
             run_id,
             "initial_collect_done",
-            f"{mode}={query[:60]} 命中 {result.get('total_entries') or 0} 条（产物 {result.get('artifact')}）",
+            f"{mode}={query[:60]} 报告 {result.get('report_path')}（cost {result.get('cost_seconds')}s）",
         )
     except Exception as exc:  # noqa: BLE001
         print(f"[initial evidence] {run_id}: {exc}")
@@ -256,6 +271,8 @@ async def abort_run(run_id: str):
         raise HTTPException(502, f"停止失败: {exc}")
     await events.publish(run_id, {"type": "user_aborted", "data": {}})
     store.append_timeline(run_id, "aborted", "用户停止排查")
+    # 状态置 aborted，与"从未开始"（created）区分；aborted 不再计入进行中/待继续
+    store.update_run(run_id, {"status": "aborted", "pending": False, "pending_since": None})
     return {"ok": True}
 
 

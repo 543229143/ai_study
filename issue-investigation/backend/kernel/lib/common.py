@@ -116,7 +116,6 @@ def default_log_time_from(query_mode: str) -> str:
 
 LATEST_REPORT_FILENAME = "investigation-report.md"
 LATEST_EVIDENCE_FILENAME = "evidence.json"
-LATEST_RECEIPT_FILENAME = "receipt.json"
 _RUN_ID_RE = re.compile(r"^\d{8}T\d{6}Z$")
 
 # installSkill.sh 合并后的跨工具权威路径（Cursor / Claude / OpenCode 共用）
@@ -222,19 +221,6 @@ def publish_investigation_evidence(repo_root: Path, run_dir: Path) -> Path | Non
     if not src.is_file():
         return None
     dest = latest_evidence_path(repo_root)
-    dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
-    return dest
-
-
-def latest_receipt_path(repo_root: Path) -> Path:
-    return investigation_report_dir(repo_root) / LATEST_RECEIPT_FILENAME
-
-
-def publish_investigation_receipt(repo_root: Path, run_dir: Path) -> Path | None:
-    src = run_dir / LATEST_RECEIPT_FILENAME
-    if not src.is_file():
-        return None
-    dest = latest_receipt_path(repo_root)
     dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
     return dest
 

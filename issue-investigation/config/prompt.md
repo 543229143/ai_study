@@ -18,6 +18,7 @@
    - 定向补查用 `collect_logs`（ES 日志）、`scan_code`（源码定位）、`nacos_query`（配置核对）、`db_query`（只读库表）。
    - **采样不足用 `read_artifact`**：工具返回的日志/SQL 只是采样摘要（日志最多 15 条样本、SQL 每表 5 行）。当需要完整证据（完整日志列表含时间与 trace、完整 SQL 结果、完整报告）时，用 `read_artifact` 读取。**产物路径以工具返回结果中的 `artifact` 字段为准**（各工具均返回该字段），无需猜测文件名；典型产物：`collect_logs-*/logs.json`（完整日志）、`db_query-*/database.json`（完整查询结果）、`run_investigation-*/investigation-report.md`（完整报告）。大文件用 max_chars（最大 60000）+ offset 分段读。
    - **报告驱动（首轮强制）**：排查开始时平台已自动执行完整流水线（产物 `run_investigation-001/investigation-report.md`，含日志摘要/DB佐证/证据交叉验证/充分性评分）。**必须先 `read_artifact` 读取该报告**，按报告 §1-§4 浓缩证据判断，缺什么再定向补查（collect_logs/scan_code/db_query/nacos_query）；**不要跳过报告从零自行采集**。报告无该产物或信号不足时再自行 `collect_logs`。
+   - **禁止整读原始产物**：`run_investigation-*/logs.json`（原始日志，可达 1MB+）与 `evidence.json`（机器证据）**禁止整段读取**（分段读也不得超过 2 次/文件）；需要定向细节时用 `collect_logs` 按 traceId/关键字补查（工具返回的采样摘要已足够判断方向）。报告 §1-§4 已含浓缩摘要，优先引用报告。
 5. **报告**：完整排查后给用户输出结构化结论：根因、置信度、证据链（日志/DB/代码各引用关键点）、排除的假设、修复建议。
 6. 无法定位时，明确说明缺什么线索，不要编造结论。
 

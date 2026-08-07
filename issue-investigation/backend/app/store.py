@@ -16,7 +16,6 @@ _RUN_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 ARTIFACT_NAMES = (
     "investigation-report.md",
     "evidence.json",
-    "receipt.json",
     "agent_db_plan.json",
     "context.json",
     "logs.json",

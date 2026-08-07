@@ -169,7 +169,7 @@
               <span class="gen-elapsed">{{ streamElapsed.toFixed(1) }}s</span>
             </div>
             <div class="msg-text" v-if="streamHtml" v-html="streamHtml"></div>
-            <div class="thinking-hint mono" v-if="running && !streamText">推理中…</div>
+            <div class="thinking-hint mono" v-if="running && !streamText && (streamIntermediate?.length || streamToolCalls?.length)">推理中…</div>
 
             <!-- 推理中恢复的半成品处理详情（中间过程/工具调用合并进执行中区域，不另起空消息） -->
             <div v-if="(streamIntermediate?.length || streamToolCalls?.length) && streamDetailsOpen" class="details-block stream-details">
@@ -366,7 +366,7 @@ interface Msg {
   collapsed?: boolean; // 处理详情默认折叠
 }
 
-const env = ref<"dev" | "sit">("dev");
+const env = ref<"dev" | "sit">("sit");
 const agents = ref<string[]>(["opencode", "pi"]);
 const agent = ref("opencode");
 const run = ref<Run | null>(null);
@@ -548,6 +548,7 @@ async function stop() {
 
 const costText = computed(() => {
   if (cost.value === null || isNaN(cost.value)) return "$-";
+  if (cost.value === 0) return "$0.0000（免费模型）";
   if (cost.value >= 0.01) return `$${cost.value.toFixed(2)}`;
   return `$${cost.value.toFixed(5)}`;
 });
@@ -916,6 +917,11 @@ async function handleEvent(e: any) {
       }
       if (/用户消息:|\[当前排查环境:|\[识别提示:|系统提示：/.test(e.data.text)) {
         echoDrop = true;
+        streamTokens.value += estimateTokens(e.data.text);
+        break;
+      }
+      // 中间过程净化：平台内部状态自述（报告缺失/自行采集类）不展示（信息量低，暴露内部状态）
+      if (/(报告产物不存在|报告无该产物|改为自行采集|按规则自行采集)/.test(e.data.text)) {
         streamTokens.value += estimateTokens(e.data.text);
         break;
       }
