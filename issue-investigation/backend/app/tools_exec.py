@@ -305,7 +305,8 @@ def run_investigation(run_id: str, seq: int, params: dict) -> dict:
     env = params["env"]
     app = params.get("app") or "lps"
     mode = params.get("mode") or "trace_id"
-    query = params.get("query") or params.get("trace_id") or ""
+    # 关键：query 兜底 biz_key/alert（与 collect_logs 对齐）——此前 biz_key 模式 query 为空导致空报告
+    query = params.get("query") or params.get("trace_id") or params.get("biz_key") or params.get("alert") or ""
     scope = params.get("scope") or "primary_only"
     out = _artifact_dir(run_id, "run_investigation", seq)
 
