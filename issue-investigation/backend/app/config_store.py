@@ -1,6 +1,7 @@
-"""平台应用配置（config/apps.json）：应用清单/数据库名/业务键规则/业务术语。
+"""平台应用配置（config/apps.json）：应用清单/数据库名/业务键规则/业务术语/采集元数据。
 
-- 应用名 → 数据库名（空则取应用名）；一个应用可配多个业务键规则（pattern → 表/字段）
+- 应用名 → 主 schema（primary_schema，空则取应用名）；一个应用可配多个业务键规则（pattern → 表/字段）
+- 采集元数据：container（ES 容器名，空推导 {app}-service）/ primary_schema
 - 业务术语 → 应用名（可多选）
 - 保存即时生效（每次读取文件），页面配置通过 GET/PUT /config
 """
@@ -24,19 +25,29 @@ _lock = threading.Lock()
 DEFAULT_CONFIG: dict[str, Any] = {
     "apps": {
         "lps": {
-            "db_name": "",
+            "container": "lps-service",
+            "primary_schema": "lps",
             "biz_keys": [
                 {"pattern": r"CR\d{19}", "table": "ap_fund_appl", "field": "appl_no"},
             ],
         },
         "lcs": {
-            "db_name": "",
+            "container": "lcs-service",
+            "primary_schema": "lcs",
             "biz_keys": [
                 {"pattern": r"LO\d{19}", "table": "pilot_loan", "field": "loan_no"},
             ],
         },
-        "goa": {"db_name": "", "biz_keys": []},
-        "ams": {"db_name": "", "biz_keys": []},
+        "goa": {
+            "container": "goa-service",
+            "primary_schema": "goa",
+            "biz_keys": [],
+        },
+        "ams": {
+            "container": "ams-service",
+            "primary_schema": "ams",
+            "biz_keys": [],
+        },
     },
     "terms": [
         {"term": "授信号", "apps": ["lps", "lcs", "ams"]},
@@ -88,9 +99,6 @@ def validate_config(cfg: dict[str, Any]) -> list[str]:
             continue
         if not re.fullmatch(r"[a-z][a-z0-9_-]*", str(name)):
             errors.append(f"应用名 {name!r} 非法（小写字母开头，仅字母/数字/_-）")
-        db = app_cfg.get("db_name") or ""
-        if db and not re.fullmatch(r"[A-Za-z0-9_]+", str(db)):
-            errors.append(f"应用 {name}: 数据库名 {db!r} 非法")
         for i, rule in enumerate(app_cfg.get("biz_keys") or []):
             pat = (rule or {}).get("pattern") or ""
             try:
@@ -155,10 +163,10 @@ def app_names() -> list[str]:
     return list(load_config().get("apps", {}).keys())
 
 
-def db_name_of(app: str) -> str:
-    """应用配置的数据库名（空 → 由调用方回退 schemas/应用名）。"""
+def primary_schema_of(app: str) -> str:
+    """应用配置的主 schema（空 → 由调用方回退应用名）。"""
     cfg = load_config()
-    return str((cfg.get("apps", {}).get(app) or {}).get("db_name") or "")
+    return str((cfg.get("apps", {}).get(app) or {}).get("primary_schema") or "")
 
 
 def detect_hits(text: str) -> dict[str, Any]:

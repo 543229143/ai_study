@@ -4,9 +4,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from lib.common import extract_java_classes_from_logs, load_catalog, parse_problem_text
+from lib.common import extract_java_classes_from_logs, parse_problem_text
 
-# 内置兜底 biz_key 模式（当 app-catalog.json 未配置 biz_key_patterns 时使用）
+# 内置业务键模式（原 app-catalog biz_key_patterns 已废弃，此表为唯一来源）
 _BIZ_PATTERNS_DEFAULT: list[tuple[str, str, str]] = [
     (r'(?:loan[_ ]?no|loanNo|借据)[:：=\s"]+\s*"?([A-Za-z0-9_-]+)', "loan_no", "loanNo"),
     (r'"loanNo"\s*:\s*"([^"]+)"', "loan_no", "loanNo"),
@@ -35,51 +35,11 @@ _BIZ_PATTERNS_DEFAULT: list[tuple[str, str, str]] = [
     (r'(?:privilege[_ ]?plan[_ ]?no|privilegePlanNo)[:：=\s"]+\s*"?([A-Za-z0-9_-]+)', "privilege_plan_no", "privilegePlanNo"),
 ]
 
-_BIZ_PATTERNS_CACHE: dict[str, list[tuple[str, str, str]]] = {}
-
 
 def _load_biz_patterns(apps: list[str] | None = None) -> list[tuple[str, str, str]]:
-    """从 app-catalog.json 加载业务键模式（合并全局 + 按应用定制）。"""
-    catalog = load_catalog()
-    cfg = catalog.get("biz_key_patterns") or {}
-    global_cfg = cfg.get("_global") or []
-    merged: list[tuple[str, str, str]] = []
-    seen: set[str] = set()
-
-    def _add(item: dict) -> None:
-        key = f"{item.get('kind','')}:{item.get('pattern','')}"
-        if key in seen:
-            return
-        seen.add(key)
-        merged.append((item["pattern"], item["kind"], item.get("log_field", "")))
-
-    # 先加全局
-    for item in global_cfg:
-        _add(item)
-
-    # 再加各应用定制（优先级更高）
-    for app in (apps or []):
-        app_str = (app or "").strip().lower()
-        if app_str not in _BIZ_PATTERNS_CACHE:
-            app_patterns = cfg.get(app_str) or []
-            _BIZ_PATTERNS_CACHE[app_str] = [
-                (p["pattern"], p["kind"], p.get("log_field", ""))
-                for p in app_patterns
-            ]
-        for pat in _BIZ_PATTERNS_CACHE[app_str]:
-            key = f"{pat[1]}:{pat[0]}"
-            if key not in seen:
-                seen.add(key)
-                merged.append(pat)
-
-    # 兜底默认
-    for pat in _BIZ_PATTERNS_DEFAULT:
-        key = f"{pat[1]}:{pat[0]}"
-        if key not in seen:
-            seen.add(key)
-            merged.append(pat)
-
-    return merged
+    """内置业务键模式（原 app-catalog biz_key_patterns 已废弃并入此兜底）。"""
+    _ = apps
+    return _BIZ_PATTERNS_DEFAULT
 
 _KIND_PRIORITY = (
     "loan_no",

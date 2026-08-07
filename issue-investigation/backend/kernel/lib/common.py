@@ -26,16 +26,46 @@ def skill_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-_CATALOG_CACHE: dict[str, Any] | None = None
+def platform_config_path() -> Path:
+    """平台应用配置路径（config/apps.json），与 app/config_store.py 的定位保持一致。"""
+    env_path = os.environ.get("INV_APP_CONFIG_PATH")
+    if env_path:
+        return Path(env_path)
+    return skill_root().parent.parent / "config" / "apps.json"
 
 
-def load_catalog() -> dict[str, Any]:
-    global _CATALOG_CACHE
-    if _CATALOG_CACHE is not None:
-        return _CATALOG_CACHE
-    path = skill_root() / "references" / "app-catalog.json"
-    _CATALOG_CACHE = json.loads(path.read_text(encoding="utf-8"))
-    return _CATALOG_CACHE
+_PLATFORM_CONFIG_CACHE: tuple[str, dict[str, Any]] | None = None
+
+
+def load_platform_config() -> dict[str, Any]:
+    """读取平台配置页应用配置（config/apps.json）全量。
+
+    兼容 app/config_store.py 的 INV_APP_CONFIG_PATH 覆盖；
+    进程内按文件 mtime 缓存；缺失/损坏时回退默认结构（apps 为空 + 空链路）。
+    """
+    global _PLATFORM_CONFIG_CACHE
+    path = platform_config_path()
+    try:
+        mtime = path.stat().st_mtime if path.is_file() else 0.0
+    except OSError:
+        mtime = 0.0
+    if _PLATFORM_CONFIG_CACHE and _PLATFORM_CONFIG_CACHE[0] == str(path) + f":{mtime}":
+        return _PLATFORM_CONFIG_CACHE[1]
+    fallback: dict[str, Any] = {"apps": {}, "cross_service_flows": {}}
+    try:
+        if path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("apps"), dict):
+                fallback = data
+    except Exception:
+        pass
+    _PLATFORM_CONFIG_CACHE = (str(path) + f":{mtime}", fallback)
+    return fallback
+
+
+def load_platform_app_names() -> list[str]:
+    """平台配置页应用清单（config/apps.json 的 apps 键）。"""
+    return list((load_platform_config().get("apps") or {}).keys())
 
 
 def assert_env_supported(env: str) -> str:
@@ -45,21 +75,14 @@ def assert_env_supported(env: str) -> str:
             f"错误: 环境 '{env}' 为生产环境，本技能暂不介入。"
             "生产问题请使用独立生产排查方案。"
         )
-    catalog = load_catalog()
-    env_cfg = catalog.get("environments", {}).get(env)
-    if not env_cfg:
+    if env not in SUPPORTED_ENVS:
         raise SystemExit(f"错误: 未知环境 '{env}'，支持: dev, sit")
-    if not env_cfg.get("supported"):
-        raise SystemExit(
-            f"错误: 环境 '{env}' 暂未开放。{env_cfg.get('note', '')}"
-        )
     return env
 
 
 def assert_app_supported(app: str) -> dict[str, Any]:
     app = app.strip().lower()
-    catalog = load_catalog()
-    apps = catalog.get("apps", {})
+    apps = load_platform_config().get("apps", {})
     if app not in apps:
         raise SystemExit(
             f"错误: 未知应用 '{app}'，支持: {', '.join(sorted(apps))}"
@@ -276,7 +299,7 @@ def extract_java_classes_from_logs(messages: list[str], limit: int = 8) -> list[
 
 
 def list_apps() -> list[str]:
-    return sorted(load_catalog().get("apps", {}).keys())
+    return sorted((load_platform_config().get("apps") or {}).keys())
 
 
 def detect_app_from_repo(repo_root: Path) -> str | None:

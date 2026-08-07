@@ -10,7 +10,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from lib.common import detect_app_from_repo, load_catalog, skill_root
+from lib.common import (
+    detect_app_from_repo,
+    load_platform_app_names,
+    load_platform_config,
+    skill_root,
+)
 
 
 def load_workspace_layout() -> dict[str, Any]:
@@ -22,8 +27,8 @@ def load_workspace_layout() -> dict[str, Any]:
 
 
 def list_cross_flows() -> dict[str, Any]:
-    """app-catalog 里定义的跨服务链路（repay/credit-apply 等）。"""
-    return load_catalog().get("cross_service_flows") or {}
+    """配置页里定义的跨服务链路（repay/credit-apply 等）。"""
+    return load_platform_config().get("cross_service_flows") or {}
 
 
 def flow_for_scenario(scenario: str) -> str | None:
@@ -45,7 +50,7 @@ def resolve_apps(primary_app: str, scope: str, scenario: str) -> list[str]:
 
     scope 取值：
     - primary_only：只查主应用
-    - all：catalog 里全部 app
+    - all：配置页（config/apps.json）里全部 app
     - flow:repay：还款链路涉及的应用
     - auto：按 scenario 推断 flow
     """
@@ -53,7 +58,7 @@ def resolve_apps(primary_app: str, scope: str, scenario: str) -> list[str]:
     if scope == "primary_only":
         return [primary_app]
     if scope == "all":
-        return sorted(load_catalog().get("apps", {}).keys())
+        return sorted(load_platform_app_names())
     if scope.startswith("flow:"):
         flow_name = scope[5:]
         flow = list_cross_flows().get(flow_name)

@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from lib.common import load_catalog
+from lib.common import load_platform_config
 from lib.infer_db_binding import filter_mapper_queries
 from lib.infer_db_claims import (
     claim_mapper_path_allowed,
@@ -29,7 +29,7 @@ def schema_to_app(schema: str, investigation_apps: list[str]) -> str | None:
     if not sch:
         return None
     for app in investigation_apps:
-        cfg = load_catalog().get("apps", {}).get(app) or {}
+        cfg = load_platform_config().get("apps", {}).get(app) or {}
         if sch == (cfg.get("primary_schema") or app).lower():
             return app
     return None

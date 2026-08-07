@@ -1,7 +1,8 @@
 {
   "apps": {
     "lps": {
-      "db_name": "",
+      "container": "lps-service",
+      "primary_schema": "lps",
       "biz_keys": [
         {
           "pattern": "CR\\d{19}",
@@ -11,7 +12,8 @@
       ]
     },
     "lcs": {
-      "db_name": "",
+      "container": "lcs-service",
+      "primary_schema": "lcs",
       "biz_keys": [
         {
           "pattern": "LO\\d{19}",
@@ -21,11 +23,13 @@
       ]
     },
     "goa": {
-      "db_name": "",
+      "container": "goa-service",
+      "primary_schema": "goa",
       "biz_keys": []
     },
     "ams": {
-      "db_name": "",
+      "container": "ams-service",
+      "primary_schema": "ams",
       "biz_keys": []
     }
   },

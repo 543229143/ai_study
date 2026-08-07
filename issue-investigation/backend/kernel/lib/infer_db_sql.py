@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Callable
 
-from lib.common import load_catalog
+from lib.common import load_platform_config
 from lib.env_config import get_schema_name, resolve_sql_placeholders
 
 # biz_key_kind → Mapper WHERE 列名
@@ -120,7 +120,7 @@ def infer_queries_from_code(
     if not biz_key or not repo_root.is_dir():
         return []
     where_col = _BIZ_COL.get(biz_key_kind) or "loan_no"
-    app_cfg = load_catalog().get("apps", {}).get(app) or {}
+    app_cfg = load_platform_config().get("apps", {}).get(app) or {}
     schema = get_schema_name(env, app_cfg.get("primary_schema") or app)
 
     mappers = _mapper_dirs(repo_root)

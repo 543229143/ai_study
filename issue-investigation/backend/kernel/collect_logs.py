@@ -209,7 +209,7 @@ def collect(
     app_cfg = assert_app_supported(app)
     logs_cfg = get_logs_config(env)
     namespace = logs_cfg["k8s_namespace"]
-    container = app_cfg["container"]
+    container = app_cfg.get("container") or f"{app}-service"
     index = logs_cfg.get("index") or "filebeat"
 
     kibana_base = logs_cfg.get("kibana_base_url") or "http://kibana-test.xurongwl.com"

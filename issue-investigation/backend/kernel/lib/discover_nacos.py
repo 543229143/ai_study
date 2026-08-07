@@ -179,12 +179,20 @@ def discover_from_repo(repo_root: Path | str) -> dict[str, Any]:
     }
 
 
-def catalog_fallback(app_cfg: dict[str, Any]) -> list[dict[str, str]]:
+def catalog_fallback(app: str) -> list[dict[str, str]]:
     """
-    启动类扫描失败时，用 app-catalog.json 里的 nacos_group / nacos_data_ids 兜底。
+    启动类扫描失败时，按应用名推导 Nacos 配置兜底（config/apps.json 已删除该字段）。
+
+    group 同时尝试「应用名」与「应用名-service」（两种命名都存在），
+    dataId 尝试 biz.properties 与 application.properties；不存在的组合拉取返回 not_found，不报错。
     """
-    group = (app_cfg.get("nacos_group") or "").strip()
-    data_ids = app_cfg.get("nacos_data_ids") or []
-    if not group or not data_ids:
+    app = (app or "").strip().lower()
+    if not app:
         return []
-    return [{"group": group, "dataId": did, "source_file": "app-catalog.json"} for did in data_ids]
+    groups = [app, f"{app}-service"]
+    data_ids = ["biz.properties", "application.properties"]
+    return [
+        {"group": group, "dataId": did, "source_file": "config/apps.json"}
+        for group in groups
+        for did in data_ids
+    ]

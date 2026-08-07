@@ -46,15 +46,6 @@
           <div v-for="([name, cfg]) in filteredApps" :key="name" class="app-card">
             <div class="app-card-head">
               <span class="app-name mono">{{ name }}</span>
-              <span class="app-db">
-                数据库
-                <el-input
-                  v-model="cfg.db_name"
-                  size="small"
-                  placeholder="留空 = 应用名"
-                  class="db-input"
-                />
-              </span>
               <span class="app-saved mono" v-if="savedFlag[name]">✓ 已保存</span>
               <el-button
                 size="small"
@@ -65,16 +56,34 @@
               <el-button size="small" text type="danger" @click="removeApp(name)">删除应用</el-button>
             </div>
 
-            <div class="biz-title">业务键规则（单号命中 → 自动带出 表 + 字段）</div>
-            <div class="biz-row biz-head">
-              <span class="biz-pat">正则</span>
-              <span class="biz-col">表名</span>
-              <span class="biz-col">字段名</span>
-              <span class="biz-del"></span>
+            <div class="biz-title meta-title">采集元数据</div>
+            <div class="meta-grid">
+              <span class="meta-item">
+                容器名
+                <el-input
+                  v-model="cfg.container"
+                  size="small"
+                  class="meta-input"
+                  placeholder="留空推导 {app}-service"
+                />
+              </span>
+              <span class="meta-item">
+                数据库名
+                <el-input
+                  v-model="cfg.primary_schema"
+                  size="small"
+                  class="meta-input"
+                  placeholder="新增应用自动同应用名"
+                />
+              </span>
             </div>
+
+            <div class="biz-title biz-rule-title">业务键规则（单号命中 → 自动带出 表 + 字段）</div>
             <div v-for="(rule, i) in cfg.biz_keys" :key="i" class="biz-row">
               <el-input v-model="rule.pattern" size="small" class="biz-pat" placeholder="如 CR\d{19}（单反斜杠）" />
+              <span class="biz-label">表名</span>
               <el-input v-model="rule.table" size="small" class="biz-col" placeholder="ap_fund_appl" />
+              <span class="biz-label">字段名</span>
               <el-input v-model="rule.field" size="small" class="biz-col" placeholder="appl_no" />
               <el-button size="small" text type="danger" class="biz-del" @click="cfg.biz_keys.splice(i, 1)">删</el-button>
             </div>
@@ -191,7 +200,11 @@ async function persist(thenRefresh: boolean) {
 function addApp() {
   const name = newAppName.value.trim().toLowerCase();
   if (!name || data.apps[name]) return;
-  data.apps[name] = { db_name: "", biz_keys: [] };
+  data.apps[name] = {
+    container: "",
+    primary_schema: name,
+    biz_keys: [],
+  };
   newAppName.value = "";
 }
 
@@ -388,22 +401,16 @@ onMounted(async () => {
   min-width: 60px;
 }
 
-.app-db {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--ink-faint);
-  font-size: 12.5px;
-}
-
-.db-input {
-  width: 160px;
-}
-
 .biz-title {
   font-size: 12.5px;
   color: var(--ink-faint);
   margin-bottom: 8px;
+}
+
+.biz-rule-title {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
 }
 
 .biz-row {
@@ -413,9 +420,11 @@ onMounted(async () => {
   margin-bottom: 6px;
 }
 
-.biz-row.biz-head {
-  font-size: 11.5px;
+.biz-label {
+  font-size: 12px;
   color: var(--ink-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .biz-pat {
@@ -466,5 +475,34 @@ onMounted(async () => {
   margin-top: 14px;
   font-size: 12.5px;
   color: var(--ink-faint);
+}
+
+.meta-title {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--border);
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin-bottom: 6px;
+}
+
+.meta-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-faint);
+  font-size: 12.5px;
+}
+
+.meta-item-wide {
+  grid-column: 1 / -1;
+}
+
+.meta-input {
+  flex: 1;
 }
 </style>

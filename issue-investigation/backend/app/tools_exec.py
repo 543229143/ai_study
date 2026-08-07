@@ -197,9 +197,9 @@ def nacos_query(run_id: str, seq: int, params: dict) -> dict:
 
 
 def _apply_db_name_overrides(queries: list[dict], env: str) -> list[dict]:
-    """应用配置的数据库名覆盖（apps.json db_name > env-connections schemas > 应用名）。
+    """应用配置的主 schema 覆盖（apps.json primary_schema > env-connections schemas > 应用名）。
 
-    只重写 SQL 中的库限定名 `old_schema`.xxx → `db_name`.xxx；未配置 db_name 时原样。
+    只重写 SQL 中的库限定名 `old_schema`.xxx → `primary_schema`.xxx；未配置时原样。
     """
     _ensure_kernel()
     from lib.env_config import get_schema_name
@@ -207,14 +207,14 @@ def _apply_db_name_overrides(queries: list[dict], env: str) -> list[dict]:
     out = []
     for q in queries:
         app = str(q.get("app") or "").lower()
-        db_name = config_store.db_name_of(app)
+        schema_cfg = config_store.primary_schema_of(app)
         sql = q.get("sql") or ""
-        if db_name and sql:
+        if schema_cfg and sql:
             try:
                 schema = get_schema_name(env, app)
             except RuntimeError:
                 schema = app
-            sql = sql.replace(f"`{schema}`", f"`{db_name}`")
+            sql = sql.replace(f"`{schema}`", f"`{schema_cfg}`")
         out.append({**q, "sql": sql})
     return out
 

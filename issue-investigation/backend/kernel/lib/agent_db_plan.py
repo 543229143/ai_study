@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from lib.common import load_catalog, read_json, write_json
+from lib.common import load_platform_config, read_json, write_json
 from lib.db_probe import _escape_sql_value
 from lib.env_config import get_schema_name
 from lib.evidence_slim import DB_SELECT_ROW_LIMIT, ensure_select_limit
@@ -224,7 +224,7 @@ def _normalize_query(item: dict[str, Any], env: str) -> dict[str, Any]:
     if "*" in val or "…" in val or "..." in val:
         raise ValueError(f"where_value 疑似脱敏，不可用于 SQL: {val!r}")
 
-    app_cfg = load_catalog().get("apps", {}).get(app) or {}
+    app_cfg = load_platform_config().get("apps", {}).get(app) or {}
     schema = get_schema_name(env, app_cfg.get("primary_schema") or app)
     schema = _safe_ident(schema)
     escaped_val = _escape_sql_value(val)
@@ -249,7 +249,7 @@ def validate_and_normalize_plan(
     need_db=false 或 queries=[] → 空列表。
     """
     apps_allow = {(a or "").strip().lower() for a in (investigation_apps or []) if a}
-    catalog_apps = set((load_catalog().get("apps") or {}).keys())
+    catalog_apps = set((load_platform_config().get("apps") or {}).keys())
     if not plan:
         return [], {"source": "none", "need_db": False, "reason": "无 agent_db_plan.json", "errors": []}
 
@@ -368,8 +368,8 @@ def agent_plan_help_text(run_dir: Path, evidence: dict | None = None, ctx: dict 
             for h in mapper_hits[:6]:
                 lines.append(f"- {h}")
 
-        # 4. 可用 schema 清单（从 app-catalog）
-        from lib.common import load_catalog as _load_cat
+        # 4. 可用 schema 清单（从配置页）
+        from lib.common import load_platform_config as _load_cat
         cat = _load_cat()
         cat_apps = cat.get("apps") or {}
         relevant_schemas: list[str] = []

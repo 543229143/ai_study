@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from lib.common import assert_app_supported, assert_env_supported, load_catalog, write_json
+from lib.common import assert_app_supported, assert_env_supported, write_json
 from lib.deps import ensure_requests
 from lib.discover_nacos import catalog_fallback, discover_from_repo
 from lib.env_config import get_nacos_config
@@ -165,20 +165,19 @@ def _normalize_content(raw: str) -> tuple[str, str]:
 
 def _resolve_sources(app: str, repo_root: Path | None) -> dict:
     """
-    决定本次要拉哪些 Nacos 配置：优先启动类扫描，否则 app-catalog 兜底。
+    决定本次要拉哪些 Nacos 配置：优先启动类扫描，否则按应用名推导兜底。
     """
-    app_cfg = load_catalog().get("apps", {}).get(app) or {}
     if repo_root and repo_root.is_dir():
         discovered = discover_from_repo(repo_root)
         if discovered.get("sources"):
             return discovered
-    fallback = catalog_fallback(app_cfg)
+    fallback = catalog_fallback(app)
     if fallback:
         return {
             "repo_root": str(repo_root) if repo_root else "",
             "startup_classes": [],
             "sources": fallback,
-            "discovery": "app-catalog",
+            "discovery": "config",
         }
     return {
         "repo_root": str(repo_root) if repo_root else "",
@@ -238,7 +237,7 @@ def collect(
     }
 
     if not sources:
-        result["error"] = "未从启动类或 app-catalog 发现 Nacos 配置"
+        result["error"] = "未从启动类或配置页发现 Nacos 配置"
         if output:
             write_json(output, result)
         return result

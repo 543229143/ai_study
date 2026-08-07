@@ -56,7 +56,8 @@ export interface BizKeyRule {
 }
 
 export interface AppConfig {
-  db_name: string;
+  container?: string;
+  primary_schema?: string;
   biz_keys: BizKeyRule[];
 }
 
