@@ -117,6 +117,10 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
         "sample_entries": _sample(entries),
         "sample_by_app": {a: _sample(b.get("entries") or []) for a, b in by_app.items()},
         "time_coverage": time_coverage,
+        "time_window_expanded": bool(result.get("time_window_expanded")),
+        "time_from": result.get("time_from"),
+        "dual_query": bool(result.get("dual_query")),
+        "log_collect_profile": result.get("log_collect_profile"),
         "kibana_urls": result.get("kibana_urls") or {},
         "artifact": str(out),
         "cost_seconds": round(time.time() - started, 1),
@@ -143,11 +147,21 @@ def scan_code(run_id: str, seq: int, params: dict) -> dict:
         output=out,
     )
     hits = result.get("merged_hits") or []
+    # 调用者反向搜索（谁调用了异常类/方法）与最近 git 变更——内核已算好，工具返回给 agent
+    callers: list[dict] = []
+    for app, one in (result.get("by_app") or {}).items():
+        for c in (one.get("callers") or []):
+            callers.append({"app": app, "keyword": c.get("keyword"), "callers": c.get("callers") or []})
+    recent_changes = result.get("recent_changes") or []
     return {
         "apps": list(roots.keys()),
         "hit_count": len(hits),
         "apps_hit": sorted({h.get("app") for h in hits if h.get("app")}),
         "sample_hits": hits[:8],
+        "callers": callers[:10],
+        "recent_changes": recent_changes[:10],
+        "mapper_xml_hits": sum(len((v.get("mapper_xml_hits") or [])) for v in (result.get("by_app") or {}).values()),
+        "spring_config_hits": sum(len((v.get("spring_config_hits") or [])) for v in (result.get("by_app") or {}).values()),
         "artifact": str(out),
         "cost_seconds": round(time.time() - started, 1),
     }
@@ -249,6 +263,7 @@ def db_query(run_id: str, seq: int, params: dict) -> dict:
             "row_count": len(q.get("rows") or []),
             "error": q.get("error"),
             "rows": (q.get("rows") or [])[:5],
+            "available_columns": q.get("available_columns") or [],
         })
     return {
         "env": env,

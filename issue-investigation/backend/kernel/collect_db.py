@@ -53,6 +53,20 @@ _COLUMN_IN_WHERE_RE = re.compile(r"WHERE\s+.*?`([^`]+)`\s*=", re.IGNORECASE)
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def _table_from_sql(sql: str) -> str:
+    """从 SELECT 提取表名（兼容反引号/裸名、schema.table/table），返回带反引号形式供 SHOW COLUMNS。"""
+    m = _TABLE_FROM_RE.search(sql or "")
+    if m:
+        return f"`{m.group(1)}`.`{m.group(2)}`"
+    m2 = _TABLE_FROM_SIMPLE_RE.search(sql or "")
+    if m2:
+        return f"`{m2.group(1)}`"
+    m3 = re.search(r"FROM\s+([A-Za-z_][A-Za-z0-9_]*)(?:\.([A-Za-z_][A-Za-z0-9_]*))?", sql or "", re.IGNORECASE)
+    if m3:
+        return f"`{m3.group(1)}`.`{m3.group(2)}`" if m3.group(2) else f"`{m3.group(1)}`"
+    return ""
+
+
 def _diagnose_sql_error(conn, sql: str, default_schema: str, exc: Exception) -> str:
     """SELECT 失败后补充表/列存在性说明（lazy，避免成功路径额外往返）。"""
     msg = str(exc)
@@ -265,7 +279,7 @@ def collect(
             try:
                 sql = ensure_select_limit(sql)
                 rows = _run_select(conn, sql, primary_schema)
-                result["queries"].append(slim_query_entry({
+                entry = slim_query_entry({
                     "file": label,
                     "sql": sql,
                     "rows": rows,
@@ -273,7 +287,17 @@ def collect(
                     "source": q_source,
                     "executed": True,
                     "inference_reason": reason,
-                }))
+                })
+                # 空结果时自动获取表结构，方便 Agent 调整查询（与 user_probe 分支一致）
+                if not rows:
+                    try:
+                        table = _table_from_sql(sql)
+                        if table:
+                            col_rows = _run_select(conn, f"SHOW COLUMNS FROM {table}", primary_schema)
+                            entry["available_columns"] = [r.get("Field", "") for r in col_rows if r.get("Field")]
+                    except Exception:
+                        pass
+                result["queries"].append(entry)
             except Exception as exc:
                 err_msg = _diagnose_sql_error(conn, sql, primary_schema, exc)
                 result["queries"].append({
