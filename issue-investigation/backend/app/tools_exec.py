@@ -80,7 +80,6 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
     else:
         apps = _ordered_apps(run_id, [app])
     out = _artifact_dir(run_id, "collect_logs", seq) / "logs.json"
-
     started = time.time()
     result = collect_multi(
         apps, env, query,
@@ -137,7 +136,43 @@ def collect_logs(run_id: str, seq: int, params: dict) -> dict:
         "artifact": str(out),
         "cost_seconds": round(time.time() - started, 1),
     }
+    # P3 补拉标记：模型定向补查（非初始）时把本次采集应用标记进报告 §1「补拉」
+    if entries:
+        _mark_refetch(run_id, apps)
     return summary
+
+
+def _mark_refetch(run_id: str, apps: list[str]) -> None:
+    """把本次定向补查的应用标记进初始报告 evidence.logs.refetched_apps 并重渲染（报告 §1「补拉」）。
+
+    与 _merge_db_into_report 同为「读最新 evidence → 改 → 重渲染」模式，互不丢数据。
+    失败静默。
+    """
+    import json
+
+    from inv_runner import _render_report
+
+    try:
+        run_dir = config.RUNS_DIR / run_id
+        reports = sorted((run_dir / "artifacts").glob("run_investigation-*/investigation-report.md"))
+        if not reports:
+            return
+        report_dir = reports[-1].parent
+        ev_path = report_dir / "evidence.json"
+        if not ev_path.is_file():
+            return
+        evidence = json.loads(ev_path.read_text(encoding="utf-8"))
+        logs = evidence.setdefault("logs", {})
+        known = list(logs.get("refetched_apps") or [])
+        merged = list(dict.fromkeys(known + [a for a in apps if a]))
+        if merged == known:
+            return
+        logs["refetched_apps"] = merged
+        (report_dir / "investigation-report.md").write_text(
+            _render_report(evidence), encoding="utf-8"
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[mark refetch] {run_id}: {exc}")
 
 
 def scan_code(run_id: str, seq: int, params: dict) -> dict:
@@ -264,6 +299,9 @@ def db_query(run_id: str, seq: int, params: dict) -> dict:
     write_json(out / "evidence.json", {"context": ctx})
     started = time.time()
     evidence = run_collection(config.KERNEL_REPO_ROOT, ctx, out, phase="db")
+    # P1 交叉验证数据流：把 db 结果合并回初始报告目录并重渲染报告
+    # （交叉验证 log↔db / 充分性评分 DB 维度 / 矛盾发现 / 候选假设 H1 全部自动更新，与 skill db phase 一致）
+    _merge_db_into_report(run_id, evidence)
     db = evidence.get("database") or {}
     queries = db.get("queries") or []
     rows = []
@@ -284,6 +322,42 @@ def db_query(run_id: str, seq: int, params: dict) -> dict:
         "artifact": str(out),
         "cost_seconds": round(time.time() - started, 1),
     }
+
+
+def _merge_db_into_report(run_id: str, db_evidence: dict) -> None:
+    """把 db 阶段结果合并回初始报告目录（run_investigation-*）并重渲染报告。
+
+    交叉验证（log↔db）、充分性评分 DB 维度、矛盾发现、候选假设 H1 由 _render_report
+    基于合并后的 evidence 自动重新生成——与 skill 的 db phase 合并行为一致。
+    失败静默（不影响 db_query 返回）。
+    """
+    import json
+
+    from inv_runner import _render_report
+    from lib.evidence_slim import slim_evidence
+
+    try:
+        run_dir = config.RUNS_DIR / run_id
+        reports = sorted((run_dir / "artifacts").glob("run_investigation-*/investigation-report.md"))
+        if not reports:
+            return
+        report_dir = reports[-1].parent
+        ev_path = report_dir / "evidence.json"
+        if not ev_path.is_file():
+            return
+        evidence = json.loads(ev_path.read_text(encoding="utf-8"))
+        evidence["database"] = db_evidence.get("database") or {}
+        evidence["db_inference"] = db_evidence.get("db_inference") or {}
+        evidence["agent_db_plan"] = db_evidence.get("agent_db_plan") or {}
+        evidence["collect_phase"] = "logs+db"
+        report = _render_report(evidence)
+        (report_dir / "investigation-report.md").write_text(report, encoding="utf-8")
+        (report_dir / "evidence.json").write_text(
+            json.dumps(slim_evidence(evidence), ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[merge db into report] {run_id}: {exc}")
 
 
 def read_artifact(run_id: str, seq: int, params: dict) -> dict:
