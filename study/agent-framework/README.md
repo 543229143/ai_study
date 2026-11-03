@@ -26,7 +26,7 @@
 | `templates/checkpoint.md` | 每片结束的记录模板 |
 | `failure-modes.md` | 十种典型抽风与对策，**最值得先读的一页** |
 | `scripts/init.sh` | 一键装进项目（幂等，不覆盖已有文件） |
-| `scripts/loop.sh` | 可选的无值守循环，带熔断，默认关闭 |
+| `scripts/loop.sh` | 可选的无值守循环。进展=待办减少；空转熔断；脏工作区即停 |
 
 ---
 
@@ -66,8 +66,7 @@ docs/checkpoints/T01.md 证据 + 缺口 + 失败 + 下一步         ← agent �
 中片以上，开工前给 agent 这一句：
 
 ```
-读 docs/plan.md 里的 T01，按
-/Users/zhaoxin/code/ai/ai_study/study/agent-framework/templates/task-card.md
+读 docs/plan.md 里的 T01，按 docs/templates/task-card.md
 展开成 docs/tasks/T01.md。
 
 要求：
@@ -91,7 +90,8 @@ docs/checkpoints/T01.md 证据 + 缺口 + 失败 + 下一步         ← agent �
 /Users/zhaoxin/code/ai/ai_study/study/agent-framework/scripts/init.sh ~/code/your-project
 ```
 
-写入 `AGENTS.md`、`PROMPT.md`、`docs/plan.md`，建 `docs/checkpoints/`、`docs/tasks/`、`docs/design/`、`docs/contracts/`，
+写入 `AGENTS.md`、`PROMPT.md`、`docs/plan.md`、`docs/templates/`（checkpoint 与任务卡），
+建 `docs/checkpoints/`、`docs/tasks/`、`docs/design/`、`docs/contracts/`，
 并把 `tmp/`、`.local/` 加进 `.gitignore`。幂等，不覆盖已有文件。
 
 ### 2. 写第一条
@@ -134,7 +134,8 @@ git show HEAD -- docs/plan.md   # 勾掉了没
 | agent 说"任务不明确" | plan 里还是占位 | 填成第 2 步那种格式 |
 | 一次改了一大堆 | 没写「只改」 | 补边界，对一眼 diff |
 | `loop.sh` 说工作区不干净 | 上一轮没提交 | 提交或 `git stash` |
-| 循环 2 轮退出（码 2） | 熔断，在原地打转 | 看这条是不是不可完成 |
+| 循环退出码 2 | 连续 2 轮待办没减少 | 看这条是不是不可完成。只提交不勾选也算空转 |
+| 循环退出码 4 | 改了文件但没提交 | 提交或还原后再决定续不续 |
 | 说"已完成"但没证据 | 没填判定证据 | 补命令，重跑 |
 
 ### 3 分钟自测（不花 token）
@@ -148,9 +149,9 @@ git add -A && git commit -qm init && git checkout -qb feat/x
 AGENT_CMD=true /Users/zhaoxin/code/ai/ai_study/study/agent-framework/scripts/loop.sh
 # → 计划为空：退出 0
 
-printf '\n- [ ] T01 测试条目\n' >> docs/plan.md && git commit -qam task
+printf '## 现在做\n\n- [ ] T01 测试条目\n' > docs/plan.md && git commit -qam task
 AGENT_CMD=true MAX=3 /Users/zhaoxin/code/ai/ai_study/study/agent-framework/scripts/loop.sh
-# → 连续 2 轮无产出：退出 2（熔断）
+# → 连续 2 轮待办没减少：退出 2（熔断）
 ```
 
 ---
@@ -177,7 +178,7 @@ AGENT_CMD=true MAX=3 /Users/zhaoxin/code/ai/ai_study/study/agent-framework/scrip
 ### 稳定后再考虑
 
 7. 开循环（`MAX=3` 起步）
-8. 熔断已内置：连续 2 轮无提交自动停
+8. 熔断已内置：连续 2 轮待办没减少就停；改完没提交则立刻停（退出码 4）
 9. 把 checkpoint 收进 PR 描述，让 review 直接看证据
 
 ### 跑偏的三个信号

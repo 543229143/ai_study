@@ -16,7 +16,7 @@
 
 ## 1. 选片（人 + agent）
 
-- 从 `plan.md` 取一条，复制成 `templates/task-card.md` 的形状
+- 从 `plan.md` 取一条，复制成任务卡（母本 `templates/task-card.md`，装进项目后是 `docs/templates/task-card.md`）
 - **只有半天以上的片才展开任务卡**；1 小时内的片，plan 里那一行就是卡
 - 确认三件事：
   - 目标能用一句话说清
@@ -53,9 +53,9 @@
 
 ## 4. 记录（agent）
 
-按 `templates/checkpoint.md` 写：改了什么、怎么验的、没做什么、风险、下一步。
+按 `templates/checkpoint.md` 写到 `docs/checkpoints/<编号>.md`（装进项目后模板在 `docs/templates/checkpoint.md`）：改了什么、怎么验的、没做什么、风险、下一步。
 
-同时更新 `docs/plan.md`：勾掉本条，写入新的"下一步"。
+同时更新 `docs/plan.md`：勾掉本条，在「已完成」加一行指向 checkpoint。正文不要写进 plan.md。
 
 产物：checkpoint + plan 更新 + 提交。
 

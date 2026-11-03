@@ -36,9 +36,23 @@ copy() {
 copy "$FRAMEWORK_DIR/AGENTS.md" "$TARGET/AGENTS.md"
 copy "$FRAMEWORK_DIR/PROMPT.md" "$TARGET/PROMPT.md"
 
-mkdir -p "$TARGET/docs/checkpoints" "$TARGET/docs/tasks" "$TARGET/docs/design" "$TARGET/docs/contracts"
+mkdir -p \
+  "$TARGET/docs/checkpoints" \
+  "$TARGET/docs/tasks" \
+  "$TARGET/docs/design" \
+  "$TARGET/docs/contracts" \
+  "$TARGET/docs/templates"
+for d in checkpoints tasks design contracts; do
+  keep="$TARGET/docs/$d/.gitkeep"
+  [ -e "$keep" ] || : > "$keep"
+done
 copy "$FRAMEWORK_DIR/templates/plan.md" "$TARGET/docs/plan.md"
-echo "建立: docs/checkpoints/  docs/tasks/  docs/design/  docs/contracts/"
+if ! grep -q '^## 已知缺口' "$TARGET/docs/plan.md"; then
+  echo "提示：docs/plan.md 没有标题「## 已知缺口」。loop.sh 会拒绝运行，请补上这个标题（节内可以空着）。" >&2
+fi
+copy "$FRAMEWORK_DIR/templates/checkpoint.md" "$TARGET/docs/templates/checkpoint.md"
+copy "$FRAMEWORK_DIR/templates/task-card.md" "$TARGET/docs/templates/task-card.md"
+echo "建立: docs/checkpoints/  docs/tasks/  docs/design/  docs/contracts/  docs/templates/"
 
 # gitignore
 GI="$TARGET/.gitignore"
@@ -54,6 +68,6 @@ echo "  1. 打开 $(rel "$TARGET/docs/plan.md")，把第一条改成你的任务
 echo "     —— 必须有「判定证据」，写不出就换一件"
 echo "  2. 手动跑一轮：cd $TARGET && codex exec < PROMPT.md"
 echo "     （或把 PROMPT.md 的内容直接粘给任何 agent）"
-echo "  3. 它做完后看 diff，按框架目录里的 templates/checkpoint.md 补记录并提交"
+echo "  3. 它做完后看 diff，按 docs/templates/checkpoint.md 补记录并提交"
 echo
 echo "先手动跑 3 片，再用 scripts/loop.sh。"
