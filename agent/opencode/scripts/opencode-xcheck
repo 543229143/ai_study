@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# opencode-xcheck —— 把一段回答/方案交给 cursor-agent 做只读批判
+#
+#   opencode-xcheck <文件>          # 批判文件内容
+#   opencode-xcheck -               # 从 stdin 读
+#
+# 环境变量：
+#   XC_MODEL     指定 cursor-agent 模型，默认 grok-4.7-medium
+#   XC_MAX_BYTES 体积上限，默认 80000
+set -euo pipefail
+
+src="${1:-}"
+[[ -n "$src" ]] || { echo "用法: opencode-xcheck <文件>  或  opencode-xcheck -" >&2; exit 2; }
+
+max_bytes="${XC_MAX_BYTES:-80000}"
+model="${XC_MODEL:-grok-4.7-medium}"
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+if [[ "$src" == "-" ]]; then
+  cat > "$tmp/input"
+else
+  [[ -f "$src" ]] || { echo "文件不存在: $src" >&2; exit 2; }
+  cp "$src" "$tmp/input"
+fi
+
+bytes=$(wc -c < "$tmp/input" | tr -d ' ')
+if (( bytes < 20 )); then
+  echo "内容几乎是空的（${bytes} 字节），没有可批判的东西。" >&2
+  exit 2
+fi
+if (( bytes > max_bytes )); then
+  echo "内容太大（${bytes} > ${max_bytes} 字节），拆小再批判，或设置 XC_MAX_BYTES 放宽。" >&2
+  exit 2
+fi
+
+root=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+prompt=$(printf '%s\n\n<answer>\n%s\n</answer>\n' \
+  '你是严格的技术批判者。逐条审查 <answer> 里的技术判断、方案与结论。只输出问题，禁止夸奖和总结。每条批判必须给出可验证依据：文件:行号并引用代码原文（引文与行号必须一致），或一条可执行命令及其输出；给不出证据的批判必须显式标注「无证据」，不许臆断。每条批判含：问题、依据、影响、改进思路，并标 blocker/major/minor。最多 10 条，按严重度排序。完全无可批判之处只输出一行 NO_ISSUES。' \
+  "$(cat "$tmp/input")")
+
+args=(-p --mode ask --trust --output-format text --workspace "$root")
+[[ -n "$model" ]] && args+=(--model "$model")
+
+if ! out=$(cursor-agent "${args[@]}" "$prompt" 2>&1); then
+  code=$?
+  printf '%s\n' "$out" | sed $'s/\x1b\[[0-9;]*m//g'
+  [[ -n "$out" ]] || echo "cursor-agent 退出码 ${code} 且无输出：先跑 cursor-agent login。" >&2
+  exit 1
+fi
+
+printf '%s\n' "$out" | sed $'s/\x1b\[[0-9;]*m//g'

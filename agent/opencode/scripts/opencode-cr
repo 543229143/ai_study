@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# opencode-cr —— 把当前 git 改动交给 cursor-agent 做只读代码评审
+#
+#   opencode-cr              # 审工作区相对 HEAD 的改动（含 staged）
+#   opencode-cr HEAD~3       # 审最近 3 个提交
+#   opencode-cr main         # 审相对 main 的改动
+#
+# 环境变量：
+#   CR_MODEL     指定 cursor-agent 模型，默认 grok-4.7-medium
+#   CR_MAX_BYTES diff 体积上限，默认 80000
+set -euo pipefail
+
+base="${1:-HEAD}"
+max_bytes="${CR_MAX_BYTES:-80000}"
+model="${CR_MODEL:-grok-4.7-medium}"
+
+root=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  echo "不在 git 仓库里，无法取 diff。" >&2
+  exit 2
+}
+cd "$root"
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+
+{
+  git diff -U10 "$base"
+  # 未跟踪的新文件不在 diff 里，单独以 + 前缀补进去
+  git ls-files --others --exclude-standard -z |
+    while IFS= read -r -d '' f; do
+      printf '\n--- new file: %s ---\n' "$f"
+      sed 's/^/+/' "$f"
+    done
+} > "$tmp/patch"
+
+if [[ ! -s "$tmp/patch" ]]; then
+  echo "NO_ISSUES"
+  exit 0
+fi
+
+bytes=$(wc -c < "$tmp/patch" | tr -d ' ')
+if (( bytes > max_bytes )); then
+  echo "diff 太大（${bytes} > ${max_bytes} 字节），拆小再审，或设置 CR_MAX_BYTES 放宽。" >&2
+  exit 2
+fi
+
+prompt=$(printf '%s\n\n<diff>\n%s\n</diff>\n' \
+  '你是代码评审者。只就 <diff> 里的改动下结论，禁止点评未改动代码的风格。但你必须读仓库里的其他文件来验证改动是否破坏调用方：对每处改动，找出所有引用点并逐个判断是否受影响；每处改动都要给出引用点数量（0 也要写）。涉及被删除的行/函数/字段时，说明谁可能仍在依赖。每条问题给出：文件:行号、为什么是问题、怎么改，并标 blocker/major/minor。最多 10 条，按严重度排序。没有真问题只输出一行 NO_ISSUES。' \
+  "$(cat "$tmp/patch")")
+
+args=(-p --mode ask --trust --output-format text --workspace "$root")
+[[ -n "$model" ]] && args+=(--model "$model")
+
+if ! out=$(cursor-agent "${args[@]}" "$prompt" 2>&1); then
+  code=$?
+  printf '%s\n' "$out" | sed $'s/\x1b\[[0-9;]*m//g'
+  [[ -n "$out" ]] || echo "cursor-agent 退出码 ${code} 且无输出：先跑 cursor-agent login，并确认 --trust 已带。" >&2
+  exit 1
+fi
+
+printf '%s\n' "$out" | sed $'s/\x1b\[[0-9;]*m//g'
