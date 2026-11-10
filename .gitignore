@@ -1,5 +1,4 @@
 *.zip
-*.pdf
 .DS_Store
 .obsidian/
 .idea
