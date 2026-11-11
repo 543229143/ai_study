@@ -2,3 +2,8 @@
 .DS_Store
 .obsidian/
 .idea
+__pycache__/
+*.pyc
+.pytest_cache/
+results/
+data/audit/

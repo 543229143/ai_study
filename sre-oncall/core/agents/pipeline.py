@@ -7,8 +7,10 @@ from ..llm_client import LLMClient
 from .triage import TriageAgent
 from .investigation import InvestigationAgent
 from .postmortem import PostmortemAgent
+from ..safety.approval import ApprovalGate
 from ..tools.log_search import LogSearchTool
 from ..tools.metric_query import MetricQueryTool
+from ..tools.remediation import RemediationTool
 from ..tools.runbook import RunbookTool
 
 DATA_DIR = Path(__file__).parent.parent.parent / "data"
@@ -29,14 +31,18 @@ def list_incidents() -> list:
     ]
 
 
-def run_pipeline(incident_id: str) -> Dict[str, Any]:
+def run_pipeline(incident_id: str, approval_mode: str = None) -> Dict[str, Any]:
     incident = load_incident(incident_id)
     llm = LLMClient()
+
+    # 高风险动作默认拒绝：Agent 只有"提议权"，没有"执行权"
+    gate = ApprovalGate(mode=approval_mode or os.getenv("SRE_APPROVAL_MODE", "auto_deny"))
 
     tools = {
         "log_search": LogSearchTool(incident),
         "metric_query": MetricQueryTool(incident),
         "runbook_lookup": RunbookTool(incident),
+        "remediation": RemediationTool(incident, gate=gate),
     }
 
     print(f"🔍 STAGE 1: TRIAGE — Generating investigation plan")
@@ -56,8 +62,14 @@ def run_pipeline(incident_id: str) -> Dict[str, Any]:
     report = postmortem.run(incident, findings)
     print(f"  Report generated ({len(report)} chars)")
 
+    approval = gate.summary()
+    print(f"\n🔐 APPROVAL — {approval['requests']} 次请求, "
+          f"{approval['approved']} 批准, {approval['denied']} 拒绝 "
+          f"(mode={gate.mode}, audit={gate.audit_path})")
+
     return {
         "incident_id": incident_id,
+        "approval": approval,
         "service": incident.get("service", ""),
         "severity": incident.get("severity", ""),
         "plan": plan,

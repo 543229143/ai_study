@@ -46,11 +46,13 @@ def get_realtime_quote(query: str) -> str:
         return f"No data for {symbol}"
     row = row.iloc[0]
     change = float(row["涨跌幅"]) if row["涨跌幅"] != "-" else 0
+    pe = row.get("市盈率-动态")
+    pe_text = f"市盈率: {pe}" if pe and pe != "-" else "市盈率: N/A"
     return (
         f"名称: {row['名称']} | 代码: {symbol}\n"
         f"最新价: {row['最新价']} | 涨跌幅: {change:.2f}%\n"
         f"成交量: {row['成交量']}手 | 成交额: {row['成交额']}元\n"
-        f"市盈率: {row['市盈率-动态']}" if row.get('市盈率-动态') and row['市盈率-动态'] != '-' else f"市盈率: N/A"
+        f"{pe_text}"
     )
 
 

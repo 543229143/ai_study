@@ -1,10 +1,10 @@
-import re
 from typing import List, Dict
 from .llm_client import LLMClient
 from .tools import ToolExecutor, get_realtime_quote, get_historical_data, get_financial_data, calc_indicators, get_news
 from .memory import StockMemory
 from .rag import InvestmentKnowledgeBase
 from .context_manager import ContextManager
+from .react_parser import extract_bracket, parse_thought_action, parse_tool_call
 
 STOCK_SYSTEM_PROMPT = """你是一个专业的A股投资分析助理。你可以使用以下工具：
 
@@ -80,18 +80,10 @@ class ReActAgent:
         return "已达到最大推理步数，分析未完成。请尝试简化问题或增加 max_steps。"
 
     def _parse(self, text: str):
-        thought_match = re.search(r"Thought:\s*(.*?)(?=Action:|$)", text, re.DOTALL)
-        action_match = re.search(r"Action:\s*(.*?)$", text, re.MULTILINE)
-        thought = thought_match.group(1).strip() if thought_match else ""
-        action = action_match.group(1).strip() if action_match else ""
-        return thought, action
+        return parse_thought_action(text)
 
     def _parse_tool(self, action: str):
-        match = re.match(r"(\w+)\[(.*)\]", action, re.DOTALL)
-        if match:
-            return match.group(1), match.group(2).strip()
-        return None, None
+        return parse_tool_call(action)
 
     def _extract_bracket(self, action: str):
-        match = re.search(r"\[(.*)\]", action, re.DOTALL)
-        return match.group(1).strip() if match else action[len("Finish["):].strip()
+        return extract_bracket(action)

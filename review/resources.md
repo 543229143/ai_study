@@ -71,3 +71,26 @@
 | TradingAgents 全文精读 | 不推荐：业务是金融，与目标岗位无关，10k 行读完成本极高 |
 | CrewAI 源码精读 | 不推荐：抽象最浅，面试价值低；只需知道"角色扮演式编排"一句话定位 |
 | AutoGen / 微软 Agent Framework | 不推荐投入：新旧交替期，知道定位即可 |
+
+---
+
+## 五、本期改造用到的参考（2026-11-11 验证，均 200）
+
+| 资源 | 链接 | 用在哪 |
+|---|---|---|
+| OpenAI · Function calling | https://platform.openai.com/docs/guides/function-calling | `stock-insight/core/tool_agent.py` 的协议依据 |
+| OpenAI · Structured outputs | https://platform.openai.com/docs/guides/structured-outputs | 解释"为什么参数要 schema 化" |
+| OTel · GenAI semantic conventions | https://opentelemetry.io/docs/specs/semconv/gen-ai/ | `core/tracing.py` 的字段命名参照（span / token / model） |
+| OTel · GenAI spans | https://opentelemetry.io/docs/specs/semconv/gen-ai/gen-ai-spans/ | 想把它接到真实 APM 时看这个 |
+| Langfuse · Tracing | https://langfuse.com/docs/tracing | 自研 trace 与成熟产品的差距对比 |
+
+## 六、本地产出物（不联网，随时可跑）
+
+| 命令 | 作用 | 需要 key |
+|---|---|---|
+| `cd stock-insight && python3 scripts/parse_benchmark.py` | 文本协议解析鲁棒性（48 条样本） | 否 |
+| `cd stock-insight && python3 scripts/prompt_size.py` | 工具描述 / 多轮 prompt 的 token 对比（需 tiktoken） | 否 |
+| `cd stock-insight && python3 -m pytest tests -q` | 31 个单测 | 否 |
+| `cd sre-oncall && python3 -m pytest tests -q` | 13 个单测 | 否 |
+| `cd stock-insight && python3 scripts/benchmark.py --runs 5` | 端到端延迟/token/成本 | 是 |
+| `cd column-writer && python3 scripts/cost_report.py --write COST_COMPARISON.md` | 写作模式成本表 | 是 |

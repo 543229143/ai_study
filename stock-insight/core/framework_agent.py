@@ -50,3 +50,15 @@ class FrameworkStockAgent:
             max_iterations=2,
         )
         return agent.run(question)
+
+    def tool_calling(self, question: str, tracer=None) -> str:
+        """原生 function calling 版（对照 ReAct 的文本解析版）。"""
+        from .stock_tools import build_agent
+
+        agent = build_agent(
+            llm=self.llm,
+            max_steps=6,
+            tracer=tracer,
+            registry=None,
+        )
+        return agent.run(question)

@@ -55,6 +55,13 @@ T+1交易: 当日买入次日才能卖出。
             p = p.strip()
             if not p:
                 continue
+            # 段落本身超长（例如没有空行的长文）时先硬切，避免单块过大
+            while len(p) > max_length:
+                head, p = p[:max_length], p[max_length:]
+                if current:
+                    chunks.append(current.strip())
+                    current = ""
+                chunks.append(head)
             if len(current) + len(p) < max_length:
                 current += p + "\n\n"
             else:

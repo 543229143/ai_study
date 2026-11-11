@@ -18,7 +18,9 @@ class StockMemory:
         if os.path.exists(path):
             with open(path, "r") as f:
                 return json.load(f)
-        return default or []
+        # 注意：不能写 `default or []`，否则 dict 型存储（history / preferences）
+        # 第一次写入时会拿到 list，赋值直接 TypeError。
+        return [] if default is None else default
 
     def _save(self, filename: str, data):
         with self._lock:
