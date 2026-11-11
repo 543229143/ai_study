@@ -91,6 +91,8 @@
 | `cd stock-insight && python3 scripts/parse_benchmark.py` | 文本协议解析鲁棒性（48 条样本） | 否 |
 | `cd stock-insight && python3 scripts/prompt_size.py` | 工具描述 / 多轮 prompt 的 token 对比（需 tiktoken） | 否 |
 | `cd stock-insight && python3 -m pytest tests -q` | 31 个单测 | 否 |
-| `cd sre-oncall && python3 -m pytest tests -q` | 13 个单测 | 否 |
+| `cd sre-oncall && python3 -m pytest tests -q` | 26 个单测 | 否 |
+| `cd sre-oncall && python3 core/cli.py pending` | 查看挂起的审批（不需要装 openai/dotenv） | 否 |
+| `cd sre-oncall && python3 core/cli.py answer <run_id> --yes` | 回答挂起项并续跑执行 | 否 |
 | `cd stock-insight && python3 scripts/benchmark.py --runs 5` | 端到端延迟/token/成本 | 是 |
 | `cd column-writer && python3 scripts/cost_report.py --write COST_COMPARISON.md` | 写作模式成本表 | 是 |

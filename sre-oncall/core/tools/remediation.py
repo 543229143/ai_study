@@ -41,6 +41,12 @@ class RemediationTool:
             return "remediation failed: 缺少 action，格式应为 action|target|reason"
 
         decision = self.gate.request(action, target, reason)
+        if decision.suspended:
+            return (
+                f"remediation SUSPENDED: {action} → {target} 已挂起，等待人工确认"
+                f"（pending={decision.pending_id}）。等待期间没有进程在跑、不消耗 Token。"
+                f"请给出建议步骤，不要重复提议同一动作。"
+            )
         if not decision.approved:
             return (
                 f"remediation DENIED: {action} → {target} "

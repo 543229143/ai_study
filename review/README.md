@@ -215,7 +215,7 @@
 |---|---|---|---|
 | `stock-insight` | **主力**（质量/性能可测） | 原生 `tool_calls` 版 agent、trace（token/成本/耗时）、单测 | `core/tool_agent.py`、`core/tool_registry.py`、`core/tracing.py`、`tests/` |
 | `column-writer` | **成本可控** | 成本/质量对照报表脚本 + 表模板 | `scripts/cost_report.py`、`COST_COMPARISON.md` |
-| `sre-oncall` | **行为可控** | 高风险动作审批闸门 + 审计留痕 + 单测 | `core/safety/approval.py`、`core/tools/remediation.py`、`tests/` |
+| `sre-oncall` | **行为可控** | 审批闸门（拒绝 / 挂起 / 当场问）+ 审计留痕 + **挂起后续跑** + 单测 | `core/safety/approval.py`、`core/safety/pending.py`、`core/resume.py`、`tests/` |
 
 改造原则：**外挂式**。旧的文本协议实现原样保留（`core/agent.py`），新实现并存，
 这样"两种解法的对照"才是真的，而不是把旧代码删了假装一直这么写。
@@ -225,9 +225,10 @@
 | 指标 | 结果 | 复现命令 |
 |---|---|---|
 | 文本协议解析鲁棒性 | 48 条样本中 **26 条**与模型意图不符（**54%**） | `python3 scripts/parse_benchmark.py` |
-| 单测 | **44 个通过**（stock-insight 31 + sre-oncall 13） | `python3 -m pytest tests -q` |
+| 单测 | **57 个通过**（stock-insight 31 + sre-oncall 26） | `python3 -m pytest tests -q` |
 | 工具描述 token | 文本 **343** → JSON Schema **1205**（+862） | `python3 scripts/prompt_size.py` |
 | 6 轮累计 prompt token | 旧版 **36135** vs 新版 **41292**（新版更贵 +5157） | 同上 |
+| 挂起式审批 | 挂起 → 回答 → 续跑，全链路可离线演示 | `python3 core/cli.py pending` / `answer <run_id>` |
 
 > 解析语料是**构造**的，衡量的是"某类输出一旦出现必然失败"的**结构性脆弱**，
 > 不是线上失败率。面试时也要这么说，别把构造语料说成线上统计。
@@ -255,7 +256,7 @@
 
 1. **tool_calls**：为什么文本协议脆弱？举 54% 里的两个具体形态（全角冒号、多行参数被截断）
 2. **trace**：一次分析花多少 token、成本怎么算、为什么未知模型报"未知"而不是 0
-3. **HITL**：为什么默认 `auto_deny`、审计日志里记了什么、拒绝后 agent 该退化成什么行为
+3. **HITL**：为什么默认 `auto_deny`；**拒绝和挂起有什么区别**（挂起会存下 run_id 和现场，人回来用原会话续跑，等待期间零进程零 Token）；审计日志里记了什么
 
 
 ## 四、选做（有余力再看，别占主线时间）

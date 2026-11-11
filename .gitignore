@@ -5,5 +5,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
-results/
-data/audit/
+**/results/
+**/data/audit/
+**/data/pending/
+**/data/runs/
